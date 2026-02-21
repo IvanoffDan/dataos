@@ -1,0 +1,79 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  GCP_PROJECT: izakaya-488118
+  GCP_REGION: us-central1
+  AR_REPO: us-central1-docker.pkg.dev/izakaya-488118/izakaya
+  # Set via `pulumi stack output` after first deploy
+  WORKLOAD_IDENTITY_PROVIDER: projects/izakaya-488118/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  SERVICE_ACCOUNT: izakaya-github@izakaya-488118.iam.gserviceaccount.com
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push backend image
+        run: |
+          docker build -t ${{ env.AR_REPO }}/backend:${{ github.sha }} -t ${{ env.AR_REPO }}/backend:latest backend/
+          docker push ${{ env.AR_REPO }}/backend:${{ github.sha }}
+          docker push ${{ env.AR_REPO }}/backend:latest
+
+      - name: Build and push frontend image
+        run: |
+          docker build -t ${{ env.AR_REPO }}/frontend:${{ github.sha }} -t ${{ env.AR_REPO }}/frontend:latest frontend/
+          docker push ${{ env.AR_REPO }}/frontend:${{ github.sha }}
+          docker push ${{ env.AR_REPO }}/frontend:latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Pulumi dependencies
+        run: cd infra && npm ci
+
+      - name: Pulumi up
+        uses: pulumi/actions@v6
+        with:
+          command: up
+          stack-name: prod
+          work-dir: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Run database migrations
+        run: |
+          gcloud run jobs execute izakaya-migrate \
+            --region ${{ env.GCP_REGION }} \
+            --wait
+
+      - name: Deploy backend to Cloud Run
+        run: |
+          gcloud run services update izakaya-backend \
+            --region ${{ env.GCP_REGION }} \
+            --image ${{ env.AR_REPO }}/backend:${{ github.sha }}
+
+      - name: Deploy frontend to Cloud Run
+        run: |
+          gcloud run services update izakaya-frontend \
+            --region ${{ env.GCP_REGION }} \
+            --image ${{ env.AR_REPO }}/frontend:${{ github.sha }}

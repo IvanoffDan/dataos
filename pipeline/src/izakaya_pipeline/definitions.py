@@ -9,7 +9,7 @@ from izakaya_pipeline.assets import (
     mapped_dataset,
 )
 from izakaya_pipeline.resources import BigQueryResource, DatabaseResource
-from izakaya_pipeline.sensors import fivetran_sync_sensor, pending_run_sensor
+from izakaya_pipeline.sensors import config_change_sensor, fivetran_sync_sensor, pending_run_sensor
 
 etl_asset_job = define_asset_job(
     name="etl_asset_job",
@@ -20,7 +20,7 @@ etl_asset_job = define_asset_job(
 defs = Definitions(
     assets=[mapped_dataset, labelled_dataset, datamart],
     jobs=[etl_asset_job],
-    sensors=[pending_run_sensor, fivetran_sync_sensor],
+    sensors=[pending_run_sensor, fivetran_sync_sensor, config_change_sensor],
     resources={
         "database": DatabaseResource(
             connection_url=os.getenv(

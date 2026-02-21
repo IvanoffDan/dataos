@@ -1,4 +1,4 @@
-from izakaya_api.dataset_types.base import ColumnDef, DatasetTypeDef, DataType
+from izakaya_api.dataset_types.base import ColumnDef, DatasetTypeDef, DataType, MetricDef
 
 sales = DatasetTypeDef(
     id="sales",
@@ -6,6 +6,33 @@ sales = DatasetTypeDef(
     description="Transactional sales data with product, geography, and value dimensions.",
     grain="One row per transaction line item per day",
     duration="Daily",
+    metrics=[
+        MetricDef(
+            id="total_value",
+            name="Total Sales Value",
+            sql_expression="SUM(value)",
+            format_type="currency",
+            default=True,
+        ),
+        MetricDef(
+            id="total_quantity",
+            name="Total Units Sold",
+            sql_expression="SUM(quantity)",
+            format_type="number",
+        ),
+        MetricDef(
+            id="avg_order_value",
+            name="Avg Order Value",
+            sql_expression="SAFE_DIVIDE(SUM(value), SUM(quantity))",
+            format_type="currency",
+        ),
+        MetricDef(
+            id="transaction_count",
+            name="Transactions",
+            sql_expression="COUNT(*)",
+            format_type="number",
+        ),
+    ],
     columns=[
         ColumnDef(
             name="date",

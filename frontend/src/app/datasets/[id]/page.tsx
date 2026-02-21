@@ -4,7 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import {
+  fetchKpiSummary,
+  fetchMetrics,
+  fetchTimeSeries,
+  KpiSummary,
+  MetricDef,
+  TimeSeriesPoint,
+} from "@/lib/explore-api";
 import { AuthGuard } from "@/components/auth-guard";
+import { KpiCard } from "@/components/charts/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -31,6 +40,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 
 interface Dataset {
   id: number;
@@ -150,6 +168,12 @@ function DatasetDetail() {
     []
   );
 
+  // KPI & chart data
+  const [kpi, setKpi] = useState<KpiSummary | null>(null);
+  const [kpiLoading, setKpiLoading] = useState(true);
+  const [metrics, setMetrics] = useState<MetricDef[]>([]);
+  const [previewChart, setPreviewChart] = useState<TimeSeriesPoint[]>([]);
+
   const loadData = useCallback(() => {
     api(`/api/datasets/${params.id}`)
       .then((r) => r.json())
@@ -160,6 +184,23 @@ function DatasetDetail() {
     api(`/api/datasets/${params.id}/runs`)
       .then((r) => r.json())
       .then(setRuns);
+    // Load KPI summary
+    const id = Number(params.id);
+    setKpiLoading(true);
+    fetchKpiSummary(id)
+      .then(setKpi)
+      .finally(() => setKpiLoading(false));
+    fetchMetrics(id).then((m) => {
+      setMetrics(m);
+      // Load preview chart with default metric (weekly, all time)
+      const defaultMetric = m.find((x) => x.default) || m[0];
+      if (defaultMetric) {
+        fetchTimeSeries(id, {
+          metric_id: defaultMetric.id,
+          granularity: "weekly",
+        }).then(setPreviewChart);
+      }
+    });
   }, [params.id]);
 
   useEffect(() => {
@@ -339,6 +380,82 @@ function DatasetDetail() {
         </p>
       )}
 
+      {/* KPI Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <KpiCard
+          label="Total Rows"
+          value={kpi ? kpi.total_rows.toLocaleString() : "—"}
+          loading={kpiLoading}
+        />
+        <KpiCard
+          label="Date Range"
+          value={
+            kpi?.min_date && kpi?.max_date
+              ? `${kpi.min_date} — ${kpi.max_date}`
+              : "—"
+          }
+          loading={kpiLoading}
+        />
+        {metrics.slice(0, 2).map((m) => (
+          <KpiCard
+            key={m.id}
+            label={m.name}
+            value={
+              kpi?.metrics[m.id] !== undefined
+                ? m.format_type === "currency"
+                  ? `$${kpi.metrics[m.id].toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                  : kpi.metrics[m.id].toLocaleString()
+                : "—"
+            }
+            loading={kpiLoading}
+          />
+        ))}
+      </div>
+
+      {/* Preview Chart */}
+      {previewChart.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg">
+              {metrics.find((m) => m.default)?.name || metrics[0]?.name} (Weekly)
+            </CardTitle>
+            <Link
+              href={`/review/${params.id}`}
+              className="text-sm text-[var(--primary)] hover:underline"
+            >
+              Explore in Review & QA &rarr;
+            </Link>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={previewChart}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis
+                  dataKey="period"
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(v: string) => {
+                    const d = new Date(v);
+                    return `${d.getMonth() + 1}/${d.getDate()}`;
+                  }}
+                />
+                <YAxis tick={{ fontSize: 12 }} width={60} />
+                <Tooltip
+                  formatter={(value) => (value as number).toLocaleString()}
+                  labelFormatter={(label) => new Date(String(label)).toLocaleDateString()}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke="var(--primary)"
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Data Sources */}
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between">
@@ -366,7 +483,12 @@ function DatasetDetail() {
                 {sources.map((s) => (
                   <TableRow key={s.id}>
                     <TableCell className="font-medium">
-                      {s.connector_name}
+                      <Link
+                        href={`/datasets/${dataset.id}/sources/${s.id}`}
+                        className="text-[var(--primary)] hover:underline"
+                      >
+                        {s.connector_name}
+                      </Link>
                     </TableCell>
                     <TableCell className="text-[var(--muted-foreground)] font-mono text-xs">
                       {s.bq_table}

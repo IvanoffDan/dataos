@@ -22,10 +22,21 @@ class ColumnDef:
 
 
 @dataclass
+class MetricDef:
+    id: str
+    name: str
+    sql_expression: str
+    format_type: str  # "currency", "number", "percent"
+    default: bool = False
+    description: str = ""
+
+
+@dataclass
 class DatasetTypeDef:
     id: str
     name: str
     description: str
     columns: list[ColumnDef] = field(default_factory=list)
+    metrics: list[MetricDef] = field(default_factory=list)
     grain: str = ""
     duration: str = ""

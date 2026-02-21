@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Izakaya",
-  description: "Data ingestion platform",
+  title: "DataOS",
+  description: "The next generation data ingestion platform",
 };
 
 export default function RootLayout({

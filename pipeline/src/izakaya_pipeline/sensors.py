@@ -47,6 +47,58 @@ def pending_run_sensor(context):
         db.close()
 
 
+@sensor(job_name="etl_asset_job", minimum_interval_seconds=30)
+def config_change_sensor(context):
+    """Detects label rule or mapping changes and creates pending pipeline runs."""
+    db = _get_db_session()
+    try:
+        rows = db.execute(
+            text("""
+                SELECT DISTINCT d.id
+                FROM datasets d
+                WHERE (
+                    EXISTS (
+                        SELECT 1 FROM label_rules lr
+                        WHERE lr.dataset_id = d.id
+                        AND lr.created_at > COALESCE(
+                            (SELECT MAX(pr.completed_at) FROM pipeline_runs pr
+                             WHERE pr.dataset_id = d.id AND pr.status IN ('success', 'failed')),
+                            '1970-01-01'
+                        )
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM mappings m
+                        JOIN data_sources ds ON ds.id = m.data_source_id
+                        WHERE ds.dataset_id = d.id
+                        AND m.created_at > COALESCE(
+                            (SELECT MAX(pr.completed_at) FROM pipeline_runs pr
+                             WHERE pr.dataset_id = d.id AND pr.status IN ('success', 'failed')),
+                            '1970-01-01'
+                        )
+                    )
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM pipeline_runs pr
+                    WHERE pr.dataset_id = d.id AND pr.status IN ('pending', 'running')
+                )
+            """)
+        ).fetchall()
+
+        for row in rows:
+            dataset_id = row[0]
+            db.execute(
+                text("""
+                    INSERT INTO pipeline_runs (dataset_id, status)
+                    VALUES (:dataset_id, 'pending')
+                """),
+                {"dataset_id": dataset_id},
+            )
+            db.commit()
+            logger.info(f"Created pending run for dataset {dataset_id} (config change detected)")
+    finally:
+        db.close()
+
+
 @sensor(job_name="etl_asset_job", minimum_interval_seconds=60)
 def fivetran_sync_sensor(context):
     """Detects completed Fivetran syncs and creates pending pipeline runs."""

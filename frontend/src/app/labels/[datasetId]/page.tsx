@@ -218,8 +218,11 @@ function ColumnOverview() {
                 {data.columns.map((col) => {
                   const pct =
                     col.distinct_count && col.distinct_count > 0
-                      ? Math.round(
-                          (col.rule_count / col.distinct_count) * 100
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (col.rule_count / col.distinct_count) * 100
+                          )
                         )
                       : 0;
                   return (

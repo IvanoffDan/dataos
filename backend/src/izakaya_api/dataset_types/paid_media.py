@@ -1,4 +1,4 @@
-from izakaya_api.dataset_types.base import ColumnDef, DatasetTypeDef, DataType
+from izakaya_api.dataset_types.base import ColumnDef, DatasetTypeDef, DataType, MetricDef
 
 paid_media = DatasetTypeDef(
     id="paid_media",
@@ -10,6 +10,39 @@ paid_media = DatasetTypeDef(
     ),
     grain="One row per media buy at reporting grain per week",
     duration="Weekly, minimum 2 years (3-4 years recommended)",
+    metrics=[
+        MetricDef(
+            id="total_spend",
+            name="Total Spend",
+            sql_expression="SUM(spend)",
+            format_type="currency",
+            default=True,
+        ),
+        MetricDef(
+            id="total_impressions",
+            name="Total Impressions",
+            sql_expression="SUM(impressions)",
+            format_type="number",
+        ),
+        MetricDef(
+            id="total_reach",
+            name="Total Reach",
+            sql_expression="SUM(reach)",
+            format_type="number",
+        ),
+        MetricDef(
+            id="cpm",
+            name="CPM",
+            sql_expression="SAFE_DIVIDE(SUM(spend), SUM(impressions)) * 1000",
+            format_type="currency",
+        ),
+        MetricDef(
+            id="row_count",
+            name="Row Count",
+            sql_expression="COUNT(*)",
+            format_type="number",
+        ),
+    ],
     columns=[
         # ── Required ──
         ColumnDef(

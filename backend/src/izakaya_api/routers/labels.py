@@ -116,6 +116,18 @@ def label_summary(
     result = []
     for ds in datasets:
         string_cols = _get_string_columns(ds.type)
+        col_names = [c["name"] for c in string_cols]
+
+        # Only count columns that have BQ data (distinct_count > 0)
+        try:
+            bq_stats = get_column_stats(ds.type, col_names) if col_names else {}
+        except Exception:
+            bq_stats = {}
+        columns_with_data = sum(
+            1 for name in col_names
+            if bq_stats.get(name, {}).get("distinct_count", 0) > 0
+        )
+
         result.append(
             DatasetLabelSummary(
                 dataset_id=ds.id,
@@ -123,7 +135,7 @@ def label_summary(
                 dataset_type=ds.type,
                 total_rules=rule_counts.get(ds.id, 0),
                 columns_with_rules=col_counts.get(ds.id, 0),
-                total_string_columns=len(string_cols),
+                total_string_columns=columns_with_data,
             )
         )
     return result
@@ -193,10 +205,11 @@ def dataset_column_stats(
         )
 
     # Sort by coverage ascending (least covered first)
+    # Cap rule_count at distinct_count so stale rules (no matching BQ value) don't inflate coverage
     def coverage_key(c: ColumnStats) -> float:
         if c.distinct_count is None or c.distinct_count == 0:
             return 0.0
-        return c.rule_count / c.distinct_count
+        return min(c.rule_count, c.distinct_count) / c.distinct_count
 
     columns.sort(key=coverage_key)
 
