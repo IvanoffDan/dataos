@@ -28,6 +28,8 @@ interface DistinctValue {
   row_count: number;
   percentage: number;
   replacement: string | null;
+  ai_suggested: boolean | null;
+  confidence: number | null;
 }
 
 interface StaleRule {
@@ -36,7 +38,15 @@ interface StaleRule {
   column_name: string;
   match_value: string;
   replace_value: string;
+  ai_suggested: boolean | null;
+  confidence: number | null;
   created_at: string;
+}
+
+interface AutoLabelResponse {
+  suggestions: { match_value: string; replace_value: string; confidence: number }[];
+  skipped_count: number;
+  error: string | null;
 }
 
 interface ColumnValuesResponse {
@@ -66,6 +76,9 @@ function ColumnEditor() {
   const [replacements, setReplacements] = useState<Record<string, string>>({});
   // Track which stale rules to keep
   const [keptStaleRules, setKeptStaleRules] = useState<Set<number>>(new Set());
+  // AI auto-fill state
+  const [autoFilling, setAutoFilling] = useState(false);
+  const [autoFillMsg, setAutoFillMsg] = useState("");
 
   const loadData = useCallback(() => {
     setLoading(true);
@@ -148,6 +161,56 @@ function ColumnEditor() {
     }
   };
 
+  const handleAutoFill = async () => {
+    setAutoFilling(true);
+    setAutoFillMsg("");
+    try {
+      const res = await api(
+        `/api/labels/datasets/${datasetId}/columns/${column}/auto-label`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Auto-fill failed");
+      }
+      const result: AutoLabelResponse = await res.json();
+      setAutoFillMsg(
+        `AI suggested ${result.suggestions.length} rule${result.suggestions.length !== 1 ? "s" : ""}` +
+          (result.skipped_count > 0 ? ` (${result.skipped_count} already mapped)` : "")
+      );
+      loadData();
+    } catch (err) {
+      setAutoFillMsg(
+        err instanceof Error ? err.message : "Something went wrong"
+      );
+    } finally {
+      setAutoFilling(false);
+    }
+  };
+
+  const handleUndoAI = async () => {
+    setAutoFillMsg("");
+    try {
+      const res = await api(
+        `/api/labels/datasets/${datasetId}/columns/${column}/auto-label`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Undo failed");
+      }
+      const result = await res.json();
+      setAutoFillMsg(`Removed ${result.deleted} AI suggestion${result.deleted !== 1 ? "s" : ""}`);
+      loadData();
+    } catch (err) {
+      setAutoFillMsg(
+        err instanceof Error ? err.message : "Something went wrong"
+      );
+    }
+  };
+
+  const hasAISuggestions = data?.values.some((v) => v.ai_suggested) ?? false;
+
   if (loading) {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
   }
@@ -226,7 +289,7 @@ function ColumnEditor() {
         </Card>
       </div>
 
-      {/* Search + Save */}
+      {/* Search + Actions */}
       <div className="flex items-center gap-3 mb-4">
         <Input
           placeholder="Search values..."
@@ -234,10 +297,22 @@ function ColumnEditor() {
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
         />
+        <Button
+          variant="outline"
+          onClick={handleAutoFill}
+          disabled={autoFilling}
+        >
+          {autoFilling ? "Auto-filling..." : "Auto-fill with AI"}
+        </Button>
+        {hasAISuggestions && (
+          <Button variant="outline" onClick={handleUndoAI}>
+            Undo AI
+          </Button>
+        )}
         <div className="flex-1" />
-        {saveMsg && (
+        {(saveMsg || autoFillMsg) && (
           <span className="text-sm text-[var(--muted-foreground)]">
-            {saveMsg}
+            {autoFillMsg || saveMsg}
           </span>
         )}
         <Button onClick={handleSave} disabled={saving}>
@@ -266,11 +341,14 @@ function ColumnEditor() {
           <TableBody>
             {filteredValues.map((v) => {
               const hasRule = (replacements[v.value] || "").trim() !== "";
+              const isAI = v.ai_suggested === true;
+              const rowBg = isAI
+                ? "bg-yellow-50"
+                : hasRule
+                  ? "bg-green-50"
+                  : "";
               return (
-                <TableRow
-                  key={v.value}
-                  className={hasRule ? "bg-green-50" : ""}
-                >
+                <TableRow key={v.value} className={rowBg}>
                   <TableCell className="font-mono text-sm">
                     {v.value}
                   </TableCell>
@@ -292,11 +370,22 @@ function ColumnEditor() {
                     />
                   </TableCell>
                   <TableCell>
-                    {hasRule ? (
-                      <Badge variant="success">Mapped</Badge>
-                    ) : (
-                      <Badge variant="secondary">Unmapped</Badge>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {isAI ? (
+                        <>
+                          <Badge variant="warning">AI</Badge>
+                          {v.confidence != null && (
+                            <span className="text-xs text-[var(--muted-foreground)]">
+                              {Math.round(v.confidence * 100)}%
+                            </span>
+                          )}
+                        </>
+                      ) : hasRule ? (
+                        <Badge variant="success">Mapped</Badge>
+                      ) : (
+                        <Badge variant="secondary">Unmapped</Badge>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               );

@@ -11,6 +11,8 @@ from izakaya_api.models.dataset import Dataset
 from izakaya_api.models.label_rule import LabelRule
 from izakaya_api.models.user import User
 from izakaya_api.schemas.label_rule import (
+    AutoLabelResponse,
+    AutoLabelSuggestion,
     ColumnStats,
     ColumnStatsResponse,
     ColumnValuesResponse,
@@ -253,6 +255,8 @@ def column_values(
                     row_count=count,
                     percentage=round(pct, 2),
                     replacement=replacement,
+                    ai_suggested=rule.ai_suggested if rule else None,
+                    confidence=rule.confidence if rule else None,
                 )
             )
 
@@ -314,3 +318,156 @@ def bulk_save_rules(
 
     db.commit()
     return {"saved": len(created)}
+
+
+# --- Auto-label ---
+
+_AUTOLABEL_SYSTEM = """\
+You are a data standardization assistant. You normalize inconsistent string values \
+in data columns by suggesting canonical replacement values.
+
+You will be given a column name, its description, and a list of distinct values \
+with their row counts. For each value, suggest the best canonical replacement \
+and a confidence score (0.0–1.0).
+
+Rules:
+- Group values that refer to the same entity (e.g. "sydney", "SYD" → "Sydney")
+- Use proper capitalization and standard forms appropriate for the column type
+- Values already in canonical form should map to themselves with high confidence
+- Confidence >= 0.9: clear match, obvious standardization
+- Confidence 0.7–0.89: likely correct but some ambiguity
+- Confidence < 0.7: uncertain, needs human review
+
+Respond with a JSON array only:
+[{"value": "original", "replacement": "Canonical", "confidence": 0.95}, ...]
+"""
+
+
+@router.post(
+    "/datasets/{dataset_id}/columns/{column_name}/auto-label",
+    response_model=AutoLabelResponse,
+)
+def auto_label(
+    dataset_id: int,
+    column_name: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Use AI to suggest label rules for unmapped values."""
+    from izakaya_api.config import settings
+    from izakaya_api.services.ai import chat_json
+
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=503, detail="AI service not configured")
+
+    dataset = db.get(Dataset, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    dt = get_dataset_type(dataset.type)
+    if not dt:
+        raise HTTPException(status_code=404, detail="Dataset type not found")
+
+    string_cols = _get_string_columns(dataset.type)
+    col_meta = next((c for c in string_cols if c["name"] == column_name), None)
+    if not col_meta:
+        raise HTTPException(
+            status_code=404, detail=f"String column '{column_name}' not found in dataset type"
+        )
+
+    # Load existing rules
+    existing_rules = (
+        db.query(LabelRule)
+        .filter(LabelRule.dataset_id == dataset_id, LabelRule.column_name == column_name)
+        .all()
+    )
+    mapped_lower = {r.match_value.lower().strip() for r in existing_rules}
+    canonical_values = sorted({r.replace_value for r in existing_rules if not r.ai_suggested})
+
+    # Get BQ values
+    try:
+        bq_values = get_column_value_frequencies(dataset.type, column_name, limit=1000)
+    except Exception:
+        raise HTTPException(status_code=400, detail="No data available. Run the pipeline first.")
+
+    if bq_values is None:
+        raise HTTPException(status_code=400, detail="No data available. Run the pipeline first.")
+
+    # Filter to unmapped values only
+    unmapped = [v for v in bq_values if v["value"].lower().strip() not in mapped_lower]
+    skipped_count = len(bq_values) - len(unmapped)
+
+    if not unmapped:
+        return AutoLabelResponse(suggestions=[], skipped_count=skipped_count)
+
+    # Build prompt
+    values_text = "\n".join(f'{v["value"]} ({v["count"]} rows)' for v in unmapped)
+    canonical_text = ", ".join(canonical_values) if canonical_values else "(none yet)"
+    user_message = (
+        f"Column: {column_name}\n"
+        f"Description: {col_meta['description']}\n"
+        f"Dataset: {dt.name} — {dt.description}\n\n"
+        f"Existing canonical values (user-approved): {canonical_text}\n\n"
+        f"Unmapped values to standardize:\n{values_text}"
+    )
+
+    # Call AI
+    try:
+        result = chat_json(_AUTOLABEL_SYSTEM, user_message)
+    except Exception as e:
+        logger.error("AI service error: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"AI service unavailable: {e}")
+
+    if not isinstance(result, list):
+        raise HTTPException(status_code=502, detail="AI returned invalid response")
+
+    # Save suggestions to DB
+    suggestions: list[AutoLabelSuggestion] = []
+    for item in result:
+        try:
+            value = str(item["value"])
+            replacement = str(item["replacement"])
+            confidence = float(item["confidence"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        confidence = max(0.0, min(1.0, confidence))
+
+        rule = LabelRule(
+            dataset_id=dataset_id,
+            column_name=column_name,
+            match_value=value,
+            replace_value=replacement,
+            ai_suggested=True,
+            confidence=confidence,
+        )
+        db.add(rule)
+        suggestions.append(
+            AutoLabelSuggestion(
+                match_value=value, replace_value=replacement, confidence=confidence
+            )
+        )
+
+    db.commit()
+    return AutoLabelResponse(suggestions=suggestions, skipped_count=skipped_count)
+
+
+@router.delete("/datasets/{dataset_id}/columns/{column_name}/auto-label")
+def undo_auto_label(
+    dataset_id: int,
+    column_name: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Remove all AI-suggested rules for a column."""
+    count = (
+        db.query(LabelRule)
+        .filter(
+            LabelRule.dataset_id == dataset_id,
+            LabelRule.column_name == column_name,
+            LabelRule.ai_suggested == True,  # noqa: E712
+        )
+        .delete()
+    )
+    db.commit()
+    return {"deleted": count}

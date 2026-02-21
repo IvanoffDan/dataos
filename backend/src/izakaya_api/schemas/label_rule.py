@@ -16,6 +16,8 @@ class LabelRuleResponse(BaseModel):
     column_name: str
     match_value: str
     replace_value: str
+    ai_suggested: bool | None = None
+    confidence: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -73,6 +75,8 @@ class DistinctValue(BaseModel):
     row_count: int
     percentage: float
     replacement: str | None = None
+    ai_suggested: bool | None = None
+    confidence: float | None = None
 
 
 class ColumnValuesResponse(BaseModel):
@@ -85,3 +89,18 @@ class ColumnValuesResponse(BaseModel):
     covered_row_count: int
     values: list[DistinctValue]
     stale_rules: list[LabelRuleResponse]
+
+
+# --- Auto-label ---
+
+
+class AutoLabelSuggestion(BaseModel):
+    match_value: str
+    replace_value: str
+    confidence: float
+
+
+class AutoLabelResponse(BaseModel):
+    suggestions: list[AutoLabelSuggestion]
+    skipped_count: int
+    error: str | None = None
