@@ -23,6 +23,6 @@ frontend-dev:
 	cd frontend && pnpm dev
 
 pipeline-dev:
-	cd pipeline && uv run dagster dev -p 3001
+	set -a && . ./.env && set +a && cd pipeline && uv run dagster dev -p 3001
 
 dev-up: up install migrate

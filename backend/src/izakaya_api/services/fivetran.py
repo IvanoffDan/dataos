@@ -73,6 +73,7 @@ def create_connection(service: str, name: str) -> dict:
         "fivetran_connector_id": data["id"],
         "connect_card_url": data["connect_card"]["uri"],
         "service": data.get("service", service),
+        "schema_name": schema,
     }
 
 
@@ -111,6 +112,9 @@ def get_connection(fivetran_connector_id: str) -> dict:
         )
     data = resp.json()["data"]
     status_data = data.get("status", {})
+    # Schema field is "schema_name.table" — extract just the schema part
+    raw_schema = data.get("schema", "")
+    schema_name = raw_schema.split(".")[0] if raw_schema else ""
     return {
         "service": data.get("service", ""),
         "setup_state": status_data.get("setup_state", "incomplete"),
@@ -120,4 +124,5 @@ def get_connection(fivetran_connector_id: str) -> dict:
             if status_data.get("setup_state") == "connected"
             else "setup_incomplete"
         ),
+        "schema_name": schema_name,
     }

@@ -10,6 +10,7 @@ from izakaya_api.schemas.connector import (
     ConnectorResponse,
     ConnectorUpdate,
 )
+from izakaya_api.services.bigquery import list_tables
 from izakaya_api.services.fivetran import (
     create_connection,
     delete_connection,
@@ -42,6 +43,7 @@ def create_connector(
         name=body.name,
         service=ft["service"],
         fivetran_connector_id=ft["fivetran_connector_id"],
+        schema_name=ft["schema_name"],
     )
     db.add(connector)
     db.commit()
@@ -70,6 +72,8 @@ def finalize_connector(
     connector.setup_state = details["setup_state"]
     connector.sync_state = details["sync_state"]
     connector.status = details["status"]
+    if not connector.schema_name and details.get("schema_name"):
+        connector.schema_name = details["schema_name"]
     db.commit()
     db.refresh(connector)
     return connector
@@ -91,6 +95,8 @@ def refresh_sync_status(
     connector.setup_state = details["setup_state"]
     connector.sync_state = details["sync_state"]
     connector.status = details["status"]
+    if not connector.schema_name and details.get("schema_name"):
+        connector.schema_name = details["schema_name"]
     db.commit()
     db.refresh(connector)
     return connector
@@ -138,3 +144,17 @@ def delete_connector(
         delete_connection(connector.fivetran_connector_id)
     db.delete(connector)
     db.commit()
+
+
+@router.get("/{connector_id}/tables")
+def get_connector_tables(
+    connector_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    connector = db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if not connector.schema_name:
+        raise HTTPException(status_code=400, detail="Connector has no BQ schema")
+    return list_tables(connector.schema_name)

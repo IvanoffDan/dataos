@@ -1,9 +1,9 @@
 from dagster import Definitions
 
-from izakaya_pipeline.assets.fivetran import fivetran_specs
-from izakaya_pipeline.resources import fivetran_workspace
+from izakaya_pipeline.assets.etl import etl_job
+from izakaya_pipeline.sensors import fivetran_sync_sensor, pending_run_sensor
 
 defs = Definitions(
-    assets=fivetran_specs,
-    resources={"fivetran": fivetran_workspace},
+    jobs=[etl_job],
+    sensors=[pending_run_sensor, fivetran_sync_sensor],
 )

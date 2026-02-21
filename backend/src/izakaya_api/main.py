@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from izakaya_api.routers import auth, connectors, datasets, labels, mappings
+from izakaya_api.routers import auth, connectors, data_sources, datasets, labels, pipeline
 
 app = FastAPI(title="Izakaya API")
 
@@ -16,8 +16,9 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(connectors.router)
 app.include_router(datasets.router)
-app.include_router(mappings.router)
+app.include_router(data_sources.router)
 app.include_router(labels.router)
+app.include_router(pipeline.router)
 
 
 @app.get("/health")

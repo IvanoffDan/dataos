@@ -33,6 +33,7 @@ class ConnectorResponse(BaseModel):
     status: str
     setup_state: str
     sync_state: str | None
+    schema_name: str
     created_at: datetime
     updated_at: datetime
 
