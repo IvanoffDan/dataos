@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  /* Mutinex-inspired palette */
+  --background: #fff3ee;
+  --foreground: #242424;
+  --primary: #0f2144;
+  --primary-foreground: #ffffff;
+  --accent: #ec0089;
+  --accent-foreground: #ffffff;
+  --accent-light: #ffc7f2;
+  --card: #ffffff;
+  --card-foreground: #242424;
+  --muted: #f8f8f8;
+  --muted-foreground: #64748b;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #ec0089;
+
+  /* Sidebar */
+  --sidebar: #0f2144;
+  --sidebar-foreground: #ffffff;
+  --sidebar-accent: #ec0089;
+  --sidebar-muted: #1a3260;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}

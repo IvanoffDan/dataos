@@ -1,0 +1,33 @@
+[project]
+name = "izakaya-api"
+version = "0.1.0"
+description = "Izakaya backend API"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "psycopg2-binary>=2.9",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0",
+    "bcrypt>=4.0",
+    "google-cloud-bigquery>=3.25",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/izakaya_api"]
+
+[tool.ruff]
+line-length = 100
