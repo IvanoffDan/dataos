@@ -1,8 +1,10 @@
 from izakaya_api.dataset_types.base import DatasetTypeDef
+from izakaya_api.dataset_types.paid_media import paid_media
 from izakaya_api.dataset_types.sales import sales
 
 _REGISTRY: dict[str, DatasetTypeDef] = {
     sales.id: sales,
+    paid_media.id: paid_media,
 }
 
 

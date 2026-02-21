@@ -1,12 +1,37 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from izakaya_api.dataset_types import get_dataset_type, list_dataset_types
+from izakaya_api.dataset_types.base import DataType
 from izakaya_api.deps import get_current_user, get_db
+from izakaya_api.models.dataset import Dataset
 from izakaya_api.models.label_rule import LabelRule
 from izakaya_api.models.user import User
-from izakaya_api.schemas.label_rule import LabelRuleCreate, LabelRuleResponse
+from izakaya_api.schemas.label_rule import (
+    ColumnStats,
+    ColumnStatsResponse,
+    ColumnValuesResponse,
+    DatasetLabelSummary,
+    DistinctValue,
+    LabelRuleBulkSave,
+    LabelRuleCreate,
+    LabelRuleResponse,
+)
+from izakaya_api.services.bigquery import (
+    get_column_stats,
+    get_column_value_frequencies,
+    get_total_row_count,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/labels", tags=["labels"])
+
+
+# --- Existing CRUD endpoints ---
 
 
 @router.get("/", response_model=list[LabelRuleResponse])
@@ -45,3 +70,247 @@ def delete_label_rule(
         raise HTTPException(status_code=404, detail="Label rule not found")
     db.delete(rule)
     db.commit()
+
+
+# --- New endpoints ---
+
+
+def _get_string_columns(dataset_type_id: str) -> list[dict]:
+    """Return list of {name, description} for string columns in a dataset type."""
+    dt = get_dataset_type(dataset_type_id)
+    if not dt:
+        return []
+    return [
+        {"name": c.name, "description": c.description}
+        for c in dt.columns
+        if c.data_type == DataType.STRING
+    ]
+
+
+@router.get("/summary", response_model=list[DatasetLabelSummary])
+def label_summary(
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Dashboard: per-dataset rule counts and column coverage."""
+    datasets = db.query(Dataset).order_by(Dataset.name).all()
+
+    # Rule counts per dataset: {dataset_id: total_rules}
+    rule_counts = dict(
+        db.query(LabelRule.dataset_id, func.count(LabelRule.id))
+        .group_by(LabelRule.dataset_id)
+        .all()
+    )
+
+    # Distinct columns with rules per dataset
+    col_counts = dict(
+        db.query(LabelRule.dataset_id, func.count(func.distinct(LabelRule.column_name)))
+        .group_by(LabelRule.dataset_id)
+        .all()
+    )
+
+    result = []
+    for ds in datasets:
+        string_cols = _get_string_columns(ds.type)
+        result.append(
+            DatasetLabelSummary(
+                dataset_id=ds.id,
+                dataset_name=ds.name,
+                dataset_type=ds.type,
+                total_rules=rule_counts.get(ds.id, 0),
+                columns_with_rules=col_counts.get(ds.id, 0),
+                total_string_columns=len(string_cols),
+            )
+        )
+    return result
+
+
+@router.get("/datasets/{dataset_id}/columns", response_model=ColumnStatsResponse)
+def dataset_column_stats(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Column overview: per-column stats (distinct count, rule count, coverage)."""
+    dataset = db.get(Dataset, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    string_cols = _get_string_columns(dataset.type)
+    if not string_cols:
+        return ColumnStatsResponse(
+            dataset_id=dataset.id,
+            dataset_name=dataset.name,
+            dataset_type=dataset.type,
+            columns=[],
+        )
+
+    col_names = [c["name"] for c in string_cols]
+
+    # BQ stats (graceful failure)
+    try:
+        total_rows = get_total_row_count(dataset.type)
+        bq_stats = get_column_stats(dataset.type, col_names)
+    except Exception:
+        logger.warning("BQ unavailable for dataset %s", dataset.type, exc_info=True)
+        total_rows = None
+        bq_stats = {}
+
+    # Rule counts per column from Postgres
+    rule_counts = dict(
+        db.query(LabelRule.column_name, func.count(LabelRule.id))
+        .filter(LabelRule.dataset_id == dataset_id)
+        .group_by(LabelRule.column_name)
+        .all()
+    )
+
+    columns = []
+    for col in string_cols:
+        name = col["name"]
+        bq = bq_stats.get(name, {})
+        columns.append(
+            ColumnStats(
+                column_name=name,
+                description=col["description"],
+                distinct_count=bq.get("distinct_count"),
+                rule_count=rule_counts.get(name, 0),
+                non_null_count=bq.get("non_null_count"),
+                total_rows=total_rows,
+            )
+        )
+
+    # Sort by coverage ascending (least covered first)
+    def coverage_key(c: ColumnStats) -> float:
+        if c.distinct_count is None or c.distinct_count == 0:
+            return 0.0
+        return c.rule_count / c.distinct_count
+
+    columns.sort(key=coverage_key)
+
+    return ColumnStatsResponse(
+        dataset_id=dataset.id,
+        dataset_name=dataset.name,
+        dataset_type=dataset.type,
+        total_rows=total_rows,
+        columns=columns,
+    )
+
+
+@router.get("/datasets/{dataset_id}/columns/{column_name}/values", response_model=ColumnValuesResponse)
+def column_values(
+    dataset_id: int,
+    column_name: str,
+    search: str | None = None,
+    limit: int = 1000,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Distinct values for a column merged with existing rules."""
+    dataset = db.get(Dataset, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Validate column exists in dataset type
+    string_cols = _get_string_columns(dataset.type)
+    col_meta = next((c for c in string_cols if c["name"] == column_name), None)
+    if not col_meta:
+        raise HTTPException(status_code=404, detail=f"String column '{column_name}' not found in dataset type")
+
+    # Load existing rules for this column
+    rules = (
+        db.query(LabelRule)
+        .filter(LabelRule.dataset_id == dataset_id, LabelRule.column_name == column_name)
+        .all()
+    )
+    rules_by_lower = {r.match_value.lower().strip(): r for r in rules}
+
+    # Get BQ data
+    try:
+        total_rows = get_total_row_count(dataset.type) or 0
+        bq_values = get_column_value_frequencies(dataset.type, column_name, search=search, limit=limit)
+    except Exception:
+        logger.warning("BQ unavailable for column values", exc_info=True)
+        total_rows = 0
+        bq_values = None
+
+    values: list[DistinctValue] = []
+    covered_row_count = 0
+    seen_rule_keys: set[str] = set()
+
+    if bq_values is not None:
+        for v in bq_values:
+            val = v["value"]
+            count = v["count"]
+            pct = (count / total_rows * 100) if total_rows > 0 else 0.0
+            rule = rules_by_lower.get(val.lower().strip())
+            replacement = rule.replace_value if rule else None
+            if rule:
+                seen_rule_keys.add(rule.match_value.lower().strip())
+                covered_row_count += count
+            values.append(
+                DistinctValue(
+                    value=val,
+                    row_count=count,
+                    percentage=round(pct, 2),
+                    replacement=replacement,
+                )
+            )
+
+    # Stale rules: rules whose match_value doesn't appear in current BQ data
+    stale_rules = [
+        LabelRuleResponse.model_validate(r)
+        for r in rules
+        if r.match_value.lower().strip() not in seen_rule_keys
+    ]
+
+    return ColumnValuesResponse(
+        dataset_id=dataset.id,
+        column_name=column_name,
+        column_description=col_meta["description"],
+        total_rows=total_rows if bq_values is not None else None,
+        distinct_count=len(values),
+        rule_count=len(rules),
+        covered_row_count=covered_row_count,
+        values=values,
+        stale_rules=stale_rules,
+    )
+
+
+@router.put("/datasets/{dataset_id}/columns/{column_name}/rules")
+def bulk_save_rules(
+    dataset_id: int,
+    column_name: str,
+    body: LabelRuleBulkSave,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Bulk save: delete old rules for this column, create new ones."""
+    dataset = db.get(Dataset, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Validate column exists
+    string_cols = _get_string_columns(dataset.type)
+    if not any(c["name"] == column_name for c in string_cols):
+        raise HTTPException(status_code=404, detail=f"String column '{column_name}' not found in dataset type")
+
+    # Delete existing rules for this column
+    db.query(LabelRule).filter(
+        LabelRule.dataset_id == dataset_id,
+        LabelRule.column_name == column_name,
+    ).delete()
+
+    # Create new rules
+    created = []
+    for item in body.rules:
+        rule = LabelRule(
+            dataset_id=dataset_id,
+            column_name=column_name,
+            match_value=item.match_value,
+            replace_value=item.replace_value,
+        )
+        db.add(rule)
+        created.append(rule)
+
+    db.commit()
+    return {"saved": len(created)}

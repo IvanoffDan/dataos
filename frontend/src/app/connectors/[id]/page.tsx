@@ -19,6 +19,12 @@ interface Connector {
   status: string;
   setup_state: string;
   sync_state: string | null;
+  succeeded_at: string | null;
+  failed_at: string | null;
+  sync_frequency: number | null;
+  schedule_type: string | null;
+  paused: boolean;
+  daily_sync_time: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -36,6 +42,33 @@ function statusBadgeVariant(
     default:
       return "secondary";
   }
+}
+
+function formatFrequency(minutes: number | null): string {
+  if (!minutes) return "\u2014";
+  if (minutes < 60) return `Every ${minutes} minutes`;
+  if (minutes === 60) return "Every hour";
+  if (minutes < 1440) return `Every ${Math.round(minutes / 60)} hours`;
+  return `Every ${Math.round(minutes / 1440)} days`;
+}
+
+function formatDateTime(dateStr: string | null): string {
+  if (!dateStr) return "\u2014";
+  return new Date(dateStr).toLocaleString();
+}
+
+function nextSyncEstimate(connector: Connector): string {
+  if (connector.paused) return "Paused";
+  if (!connector.succeeded_at || !connector.sync_frequency) return "\u2014";
+  const last = new Date(connector.succeeded_at).getTime();
+  const next = last + connector.sync_frequency * 60_000;
+  if (next < Date.now()) return "Imminent";
+  const diff = next - Date.now();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `~${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `~${hours}h`;
+  return `~${Math.floor(hours / 24)}d`;
 }
 
 function ConnectorDetail() {
@@ -122,6 +155,14 @@ function ConnectorDetail() {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
   }
 
+  const lastSuccess = connector.succeeded_at
+    ? new Date(connector.succeeded_at).getTime()
+    : 0;
+  const lastFailure = connector.failed_at
+    ? new Date(connector.failed_at).getTime()
+    : 0;
+  const healthy = lastSuccess >= lastFailure;
+
   return (
     <div>
       <div className="mb-4">
@@ -141,6 +182,7 @@ function ConnectorDetail() {
           <Badge variant={statusBadgeVariant(connector.status)}>
             {connector.status}
           </Badge>
+          {connector.paused && <Badge variant="secondary">Paused</Badge>}
           <Button
             variant="ghost"
             size="sm"
@@ -168,29 +210,115 @@ function ConnectorDetail() {
 
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Connector Details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm max-w-lg">
-            <dt className="text-[var(--muted-foreground)]">Service</dt>
-            <dd>{connector.service || "\u2014"}</dd>
-            <dt className="text-[var(--muted-foreground)]">Fivetran ID</dt>
-            <dd className="font-mono text-xs">
-              {connector.fivetran_connector_id || "\u2014"}
-            </dd>
-            <dt className="text-[var(--muted-foreground)]">Setup State</dt>
-            <dd>{connector.setup_state}</dd>
-            <dt className="text-[var(--muted-foreground)]">Sync State</dt>
-            <dd>{connector.sync_state || "\u2014"}</dd>
-            <dt className="text-[var(--muted-foreground)]">Created</dt>
-            <dd>{new Date(connector.created_at).toLocaleString()}</dd>
-            <dt className="text-[var(--muted-foreground)]">Updated</dt>
-            <dd>{new Date(connector.updated_at).toLocaleString()}</dd>
-          </dl>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Connector Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <dt className="text-[var(--muted-foreground)]">Service</dt>
+              <dd>{connector.service || "\u2014"}</dd>
+              <dt className="text-[var(--muted-foreground)]">Fivetran ID</dt>
+              <dd className="font-mono text-xs">
+                {connector.fivetran_connector_id || "\u2014"}
+              </dd>
+              <dt className="text-[var(--muted-foreground)]">Setup State</dt>
+              <dd>{connector.setup_state}</dd>
+              <dt className="text-[var(--muted-foreground)]">Created</dt>
+              <dd>{new Date(connector.created_at).toLocaleString()}</dd>
+              <dt className="text-[var(--muted-foreground)]">Updated</dt>
+              <dd>{new Date(connector.updated_at).toLocaleString()}</dd>
+            </dl>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Sync Schedule</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <dt className="text-[var(--muted-foreground)]">Sync State</dt>
+              <dd>{connector.sync_state || "\u2014"}</dd>
+              <dt className="text-[var(--muted-foreground)]">Frequency</dt>
+              <dd>{formatFrequency(connector.sync_frequency)}</dd>
+              <dt className="text-[var(--muted-foreground)]">Schedule Type</dt>
+              <dd className="capitalize">{connector.schedule_type || "\u2014"}</dd>
+              {connector.daily_sync_time && (
+                <>
+                  <dt className="text-[var(--muted-foreground)]">Daily Sync Time</dt>
+                  <dd>{connector.daily_sync_time}</dd>
+                </>
+              )}
+              <dt className="text-[var(--muted-foreground)]">Next Sync</dt>
+              <dd>{nextSyncEstimate(connector)}</dd>
+            </dl>
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-lg">Sync History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              {/* Health indicator */}
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    !lastSuccess && !lastFailure
+                      ? "bg-gray-100"
+                      : healthy
+                        ? "bg-green-100"
+                        : "bg-red-100"
+                  }`}
+                >
+                  <span className="text-lg">
+                    {!lastSuccess && !lastFailure
+                      ? "\u2014"
+                      : healthy
+                        ? "\u2713"
+                        : "\u2717"}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium">
+                    {!lastSuccess && !lastFailure
+                      ? "No syncs yet"
+                      : healthy
+                        ? "Healthy"
+                        : "Last sync failed"}
+                  </p>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    Current health
+                  </p>
+                </div>
+              </div>
+
+              {/* Last success */}
+              <div>
+                <p className="text-sm font-medium text-green-700">
+                  Last Success
+                </p>
+                <p className="text-sm">
+                  {formatDateTime(connector.succeeded_at)}
+                </p>
+              </div>
+
+              {/* Last failure */}
+              <div>
+                <p className="text-sm font-medium text-red-700">
+                  Last Failure
+                </p>
+                <p className="text-sm">
+                  {formatDateTime(connector.failed_at)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <ConfirmDialog
         open={deleteOpen}

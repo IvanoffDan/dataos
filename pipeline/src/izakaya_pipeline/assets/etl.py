@@ -216,6 +216,18 @@ def run_etl(context) -> dict:
             {"dataset_id": dataset_id},
         ).fetchall()
 
+        # Load label rules for this dataset, grouped by column
+        label_rows = db.execute(
+            text("""
+                SELECT column_name, match_value, replace_value
+                FROM label_rules WHERE dataset_id = :id
+            """),
+            {"id": dataset_id},
+        ).fetchall()
+        rules_by_col: dict[str, dict[str, str]] = {}
+        for col_name, match_val, replace_val in label_rows:
+            rules_by_col.setdefault(col_name, {})[match_val.lower().strip()] = replace_val
+
         all_valid_rows: list[dict] = []
         all_errors: list[dict] = []
         total_processed = 0
@@ -289,6 +301,14 @@ def run_etl(context) -> dict:
             # Add static value columns
             for target_col, static_val in static_mapping.items():
                 df[target_col] = static_val
+
+            # Apply label rules (case-insensitive replacement)
+            for col_name, lower_map in rules_by_col.items():
+                if col_name in df.columns:
+                    temp = df[col_name].astype(str).str.lower().str.strip()
+                    mapped = temp.map(lower_map)
+                    mask = mapped.notna()
+                    df.loc[mask, col_name] = mapped[mask]
 
             # Validate each row
             for idx, row_data in df.iterrows():

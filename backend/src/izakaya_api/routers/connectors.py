@@ -22,6 +22,22 @@ from izakaya_api.services.fivetran import (
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 
 
+def _apply_fivetran_details(connector: Connector, details: dict) -> None:
+    """Apply Fivetran API response fields to a Connector model instance."""
+    connector.service = details["service"]
+    connector.setup_state = details["setup_state"]
+    connector.sync_state = details["sync_state"]
+    connector.status = details["status"]
+    if not connector.schema_name and details.get("schema_name"):
+        connector.schema_name = details["schema_name"]
+    connector.succeeded_at = details.get("succeeded_at")
+    connector.failed_at = details.get("failed_at")
+    connector.sync_frequency = details.get("sync_frequency")
+    connector.schedule_type = details.get("schedule_type")
+    connector.paused = details.get("paused", False)
+    connector.daily_sync_time = details.get("daily_sync_time")
+
+
 @router.get("/types")
 def get_connector_types(_user: User = Depends(get_current_user)):
     return list_connector_types()
@@ -69,11 +85,7 @@ def finalize_connector(
     details = get_connection(connector.fivetran_connector_id)
     if details["setup_state"] == "connected":
         trigger_sync(connector.fivetran_connector_id)
-    connector.setup_state = details["setup_state"]
-    connector.sync_state = details["sync_state"]
-    connector.status = details["status"]
-    if not connector.schema_name and details.get("schema_name"):
-        connector.schema_name = details["schema_name"]
+    _apply_fivetran_details(connector, details)
     db.commit()
     db.refresh(connector)
     return connector
@@ -91,15 +103,31 @@ def refresh_sync_status(
     if not connector.fivetran_connector_id:
         raise HTTPException(status_code=400, detail="Connector not yet linked to Fivetran")
     details = get_connection(connector.fivetran_connector_id)
-    connector.service = details["service"]
-    connector.setup_state = details["setup_state"]
-    connector.sync_state = details["sync_state"]
-    connector.status = details["status"]
-    if not connector.schema_name and details.get("schema_name"):
-        connector.schema_name = details["schema_name"]
+    _apply_fivetran_details(connector, details)
     db.commit()
     db.refresh(connector)
     return connector
+
+
+@router.post("/refresh-all", response_model=list[ConnectorResponse])
+def refresh_all_connectors(
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Refresh sync status for all connectors that have a Fivetran ID."""
+    connectors = (
+        db.query(Connector)
+        .filter(Connector.fivetran_connector_id.isnot(None))
+        .all()
+    )
+    for connector in connectors:
+        try:
+            details = get_connection(connector.fivetran_connector_id)
+            _apply_fivetran_details(connector, details)
+        except Exception:
+            pass  # Don't fail the batch if one connector errors
+    db.commit()
+    return db.query(Connector).order_by(Connector.created_at.desc()).all()
 
 
 @router.get("/{connector_id}", response_model=ConnectorResponse)

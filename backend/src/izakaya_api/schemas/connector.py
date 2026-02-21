@@ -34,6 +34,12 @@ class ConnectorResponse(BaseModel):
     setup_state: str
     sync_state: str | None
     schema_name: str
+    succeeded_at: datetime | None = None
+    failed_at: datetime | None = None
+    sync_frequency: int | None = None
+    schedule_type: str | None = None
+    paused: bool = False
+    daily_sync_time: str | None = None
     created_at: datetime
     updated_at: datetime
 

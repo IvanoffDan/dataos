@@ -30,7 +30,7 @@ export default function RootLayout({
       >
         <div className="flex min-h-screen">
           <Nav />
-          <main className="flex-1 bg-[var(--background)] p-8 max-w-5xl">
+          <main className="flex-1 bg-[var(--background)] p-8 max-w-5xl mx-auto">
             {children}
           </main>
         </div>

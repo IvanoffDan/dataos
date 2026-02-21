@@ -125,4 +125,11 @@ def get_connection(fivetran_connector_id: str) -> dict:
             else "setup_incomplete"
         ),
         "schema_name": schema_name,
+        # Sync details
+        "succeeded_at": status_data.get("succeeded_at"),
+        "failed_at": status_data.get("failed_at"),
+        "sync_frequency": data.get("sync_frequency"),
+        "schedule_type": data.get("schedule_type"),
+        "paused": data.get("paused", False),
+        "daily_sync_time": data.get("daily_sync_time"),
     }
