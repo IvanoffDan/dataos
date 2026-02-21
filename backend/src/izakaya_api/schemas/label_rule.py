@@ -55,6 +55,7 @@ class ColumnStats(BaseModel):
     description: str
     distinct_count: int | None = None
     rule_count: int
+    ai_rule_count: int = 0
     non_null_count: int | None = None
     total_rows: int | None = None
 
@@ -104,3 +105,19 @@ class AutoLabelResponse(BaseModel):
     suggestions: list[AutoLabelSuggestion]
     skipped_count: int
     error: str | None = None
+
+
+# --- Batch auto-label ---
+
+
+class AutoLabelColumnResult(BaseModel):
+    column_name: str
+    suggestion_count: int
+    skipped_count: int
+    error: str | None = None
+
+
+class AutoLabelAllResponse(BaseModel):
+    columns: list[AutoLabelColumnResult]
+    total_suggestions: int
+    total_skipped: int

@@ -1,7 +1,7 @@
 import logging
 import os
 
-from dagster import RunConfig, RunRequest, sensor
+from dagster import RunRequest, sensor
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -14,7 +14,7 @@ def _get_db_session():
     return sessionmaker(bind=engine)()
 
 
-@sensor(job_name="etl_job", minimum_interval_seconds=30)
+@sensor(job_name="etl_asset_job", minimum_interval_seconds=30)
 def pending_run_sensor(context):
     """Polls for PipelineRun records with status 'pending' and launches ETL jobs."""
     db = _get_db_session()
@@ -31,24 +31,23 @@ def pending_run_sensor(context):
         for run in pending_runs:
             run_id, dataset_id = run
             logger.info(f"Launching ETL for dataset {dataset_id}, run {run_id}")
+
+            # Register the partition key dynamically
+            context.instance.add_dynamic_partitions(
+                partitions_def_name="dataset_id",
+                partition_keys=[str(dataset_id)],
+            )
+
             yield RunRequest(
                 run_key=f"etl-run-{run_id}",
-                run_config=RunConfig(
-                    ops={
-                        "run_etl": {
-                            "config": {
-                                "dataset_id": dataset_id,
-                                "run_id": run_id,
-                            }
-                        }
-                    }
-                ),
+                partition_key=str(dataset_id),
+                tags={"pipeline_run_id": str(run_id)},
             )
     finally:
         db.close()
 
 
-@sensor(job_name="etl_job", minimum_interval_seconds=60)
+@sensor(job_name="etl_asset_job", minimum_interval_seconds=60)
 def fivetran_sync_sensor(context):
     """Detects completed Fivetran syncs and creates pending pipeline runs."""
     db = _get_db_session()

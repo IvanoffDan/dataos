@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGuard } from "@/components/auth-guard";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -26,6 +27,7 @@ interface ColumnStats {
   description: string;
   distinct_count: number | null;
   rule_count: number;
+  ai_rule_count: number;
   non_null_count: number | null;
   total_rows: number | null;
 }
@@ -38,18 +40,72 @@ interface ColumnStatsResponse {
   columns: ColumnStats[];
 }
 
+interface AutoLabelColumnResult {
+  column_name: string;
+  suggestion_count: number;
+  skipped_count: number;
+  error: string | null;
+}
+
+interface AutoLabelAllResponse {
+  columns: AutoLabelColumnResult[];
+  total_suggestions: number;
+  total_skipped: number;
+}
+
 function ColumnOverview() {
   const params = useParams();
   const datasetId = params.datasetId as string;
   const [data, setData] = useState<ColumnStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [autoFilling, setAutoFilling] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const [autoFillResult, setAutoFillResult] =
+    useState<AutoLabelAllResponse | null>(null);
 
-  useEffect(() => {
+  const loadColumns = () =>
     api(`/api/labels/datasets/${datasetId}/columns`)
       .then((r) => r.json())
-      .then(setData)
-      .finally(() => setLoading(false));
+      .then(setData);
+
+  useEffect(() => {
+    loadColumns().finally(() => setLoading(false));
   }, [datasetId]);
+
+  const hasAiRules =
+    data?.columns.some((c) => c.ai_rule_count > 0) ?? false;
+
+  const handleAutoFillAll = async () => {
+    setAutoFilling(true);
+    setAutoFillResult(null);
+    try {
+      const res = await api(
+        `/api/labels/datasets/${datasetId}/auto-label`,
+        { method: "POST" }
+      );
+      if (!res.ok) throw new Error("Auto-label failed");
+      const result: AutoLabelAllResponse = await res.json();
+      setAutoFillResult(result);
+      await loadColumns();
+    } catch {
+      // error state handled by lack of result
+    } finally {
+      setAutoFilling(false);
+    }
+  };
+
+  const handleUndoAll = async () => {
+    setUndoing(true);
+    setAutoFillResult(null);
+    try {
+      await api(`/api/labels/datasets/${datasetId}/auto-label`, {
+        method: "DELETE",
+      });
+      await loadColumns();
+    } finally {
+      setUndoing(false);
+    }
+  };
 
   if (loading) {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
@@ -87,6 +143,55 @@ function ColumnOverview() {
         <p className="text-sm text-[var(--muted-foreground)] mb-6">
           Run the pipeline to see data statistics.
         </p>
+      )}
+
+      {data.columns.length > 0 && (
+        <div className="flex items-center gap-3 mb-4">
+          <Button
+            onClick={handleAutoFillAll}
+            disabled={autoFilling || undoing}
+            size="sm"
+          >
+            {autoFilling ? "Auto-filling..." : "Auto-fill All with AI"}
+          </Button>
+          {hasAiRules && (
+            <Button
+              variant="outline"
+              onClick={handleUndoAll}
+              disabled={autoFilling || undoing}
+              size="sm"
+            >
+              {undoing ? "Undoing..." : "Undo All AI"}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {autoFillResult && (
+        <div className="mb-4 rounded-md border border-[var(--border)] bg-[var(--muted)] p-3 text-sm">
+          <p>
+            AI suggested{" "}
+            <strong>{autoFillResult.total_suggestions}</strong> rules across{" "}
+            <strong>
+              {autoFillResult.columns.filter((c) => c.suggestion_count > 0).length}
+            </strong>{" "}
+            columns
+            {autoFillResult.total_skipped > 0 && (
+              <> ({autoFillResult.total_skipped} values already mapped)</>
+            )}
+          </p>
+          {autoFillResult.columns.some((c) => c.error) && (
+            <ul className="mt-2 space-y-1 text-red-600">
+              {autoFillResult.columns
+                .filter((c) => c.error)
+                .map((c) => (
+                  <li key={c.column_name}>
+                    {c.column_name}: {c.error}
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {data.columns.length === 0 ? (

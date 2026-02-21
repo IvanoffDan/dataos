@@ -11,6 +11,8 @@ from izakaya_api.models.dataset import Dataset
 from izakaya_api.models.label_rule import LabelRule
 from izakaya_api.models.user import User
 from izakaya_api.schemas.label_rule import (
+    AutoLabelAllResponse,
+    AutoLabelColumnResult,
     AutoLabelResponse,
     AutoLabelSuggestion,
     ColumnStats,
@@ -166,6 +168,14 @@ def dataset_column_stats(
         .all()
     )
 
+    # AI rule counts per column
+    ai_rule_counts = dict(
+        db.query(LabelRule.column_name, func.count(LabelRule.id))
+        .filter(LabelRule.dataset_id == dataset_id, LabelRule.ai_suggested == True)  # noqa: E712
+        .group_by(LabelRule.column_name)
+        .all()
+    )
+
     columns = []
     for col in string_cols:
         name = col["name"]
@@ -176,6 +186,7 @@ def dataset_column_stats(
                 description=col["description"],
                 distinct_count=bq.get("distinct_count"),
                 rule_count=rule_counts.get(name, 0),
+                ai_rule_count=ai_rule_counts.get(name, 0),
                 non_null_count=bq.get("non_null_count"),
                 total_rows=total_rows,
             )
@@ -343,6 +354,96 @@ Respond with a JSON array only:
 """
 
 
+def _auto_label_column(
+    db: Session,
+    dataset_id: int,
+    dataset_type_def,
+    column_name: str,
+    column_description: str,
+) -> AutoLabelColumnResult:
+    """Core logic: auto-label a single column. Returns result, never raises."""
+    from izakaya_api.services.ai import chat_json
+
+    try:
+        # Load existing rules
+        existing_rules = (
+            db.query(LabelRule)
+            .filter(LabelRule.dataset_id == dataset_id, LabelRule.column_name == column_name)
+            .all()
+        )
+        mapped_lower = {r.match_value.lower().strip() for r in existing_rules}
+        canonical_values = sorted({r.replace_value for r in existing_rules if not r.ai_suggested})
+
+        # Get BQ values
+        bq_values = get_column_value_frequencies(dataset_type_def.id, column_name, limit=1000)
+        if bq_values is None:
+            return AutoLabelColumnResult(
+                column_name=column_name, suggestion_count=0, skipped_count=0,
+                error="No data available",
+            )
+
+        # Filter to unmapped values only
+        unmapped = [v for v in bq_values if v["value"].lower().strip() not in mapped_lower]
+        skipped_count = len(bq_values) - len(unmapped)
+
+        if not unmapped:
+            return AutoLabelColumnResult(
+                column_name=column_name, suggestion_count=0, skipped_count=skipped_count,
+            )
+
+        # Build prompt
+        values_text = "\n".join(f'{v["value"]} ({v["count"]} rows)' for v in unmapped)
+        canonical_text = ", ".join(canonical_values) if canonical_values else "(none yet)"
+        user_message = (
+            f"Column: {column_name}\n"
+            f"Description: {column_description}\n"
+            f"Dataset: {dataset_type_def.name} — {dataset_type_def.description}\n\n"
+            f"Existing canonical values (user-approved): {canonical_text}\n\n"
+            f"Unmapped values to standardize:\n{values_text}"
+        )
+
+        # Call AI
+        result = chat_json(_AUTOLABEL_SYSTEM, user_message)
+        if not isinstance(result, list):
+            return AutoLabelColumnResult(
+                column_name=column_name, suggestion_count=0, skipped_count=skipped_count,
+                error="AI returned invalid response",
+            )
+
+        # Save suggestions to DB
+        suggestion_count = 0
+        for item in result:
+            try:
+                value = str(item["value"])
+                replacement = str(item["replacement"])
+                confidence = max(0.0, min(1.0, float(item["confidence"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            rule = LabelRule(
+                dataset_id=dataset_id,
+                column_name=column_name,
+                match_value=value,
+                replace_value=replacement,
+                ai_suggested=True,
+                confidence=confidence,
+            )
+            db.add(rule)
+            suggestion_count += 1
+
+        db.flush()
+        return AutoLabelColumnResult(
+            column_name=column_name, suggestion_count=suggestion_count, skipped_count=skipped_count,
+        )
+
+    except Exception as e:
+        logger.error("Auto-label error for column %s: %s", column_name, e, exc_info=True)
+        return AutoLabelColumnResult(
+            column_name=column_name, suggestion_count=0, skipped_count=0,
+            error=str(e),
+        )
+
+
 @router.post(
     "/datasets/{dataset_id}/columns/{column_name}/auto-label",
     response_model=AutoLabelResponse,
@@ -353,9 +454,8 @@ def auto_label(
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Use AI to suggest label rules for unmapped values."""
+    """Use AI to suggest label rules for unmapped values in a single column."""
     from izakaya_api.config import settings
-    from izakaya_api.services.ai import chat_json
 
     if not settings.anthropic_api_key:
         raise HTTPException(status_code=503, detail="AI service not configured")
@@ -375,81 +475,29 @@ def auto_label(
             status_code=404, detail=f"String column '{column_name}' not found in dataset type"
         )
 
-    # Load existing rules
-    existing_rules = (
-        db.query(LabelRule)
-        .filter(LabelRule.dataset_id == dataset_id, LabelRule.column_name == column_name)
-        .all()
-    )
-    mapped_lower = {r.match_value.lower().strip() for r in existing_rules}
-    canonical_values = sorted({r.replace_value for r in existing_rules if not r.ai_suggested})
-
-    # Get BQ values
-    try:
-        bq_values = get_column_value_frequencies(dataset.type, column_name, limit=1000)
-    except Exception:
-        raise HTTPException(status_code=400, detail="No data available. Run the pipeline first.")
-
-    if bq_values is None:
-        raise HTTPException(status_code=400, detail="No data available. Run the pipeline first.")
-
-    # Filter to unmapped values only
-    unmapped = [v for v in bq_values if v["value"].lower().strip() not in mapped_lower]
-    skipped_count = len(bq_values) - len(unmapped)
-
-    if not unmapped:
-        return AutoLabelResponse(suggestions=[], skipped_count=skipped_count)
-
-    # Build prompt
-    values_text = "\n".join(f'{v["value"]} ({v["count"]} rows)' for v in unmapped)
-    canonical_text = ", ".join(canonical_values) if canonical_values else "(none yet)"
-    user_message = (
-        f"Column: {column_name}\n"
-        f"Description: {col_meta['description']}\n"
-        f"Dataset: {dt.name} — {dt.description}\n\n"
-        f"Existing canonical values (user-approved): {canonical_text}\n\n"
-        f"Unmapped values to standardize:\n{values_text}"
-    )
-
-    # Call AI
-    try:
-        result = chat_json(_AUTOLABEL_SYSTEM, user_message)
-    except Exception as e:
-        logger.error("AI service error: %s", e, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"AI service unavailable: {e}")
-
-    if not isinstance(result, list):
-        raise HTTPException(status_code=502, detail="AI returned invalid response")
-
-    # Save suggestions to DB
-    suggestions: list[AutoLabelSuggestion] = []
-    for item in result:
-        try:
-            value = str(item["value"])
-            replacement = str(item["replacement"])
-            confidence = float(item["confidence"])
-        except (KeyError, TypeError, ValueError):
-            continue
-
-        confidence = max(0.0, min(1.0, confidence))
-
-        rule = LabelRule(
-            dataset_id=dataset_id,
-            column_name=column_name,
-            match_value=value,
-            replace_value=replacement,
-            ai_suggested=True,
-            confidence=confidence,
-        )
-        db.add(rule)
-        suggestions.append(
-            AutoLabelSuggestion(
-                match_value=value, replace_value=replacement, confidence=confidence
-            )
-        )
-
+    col_result = _auto_label_column(db, dataset_id, dt, column_name, col_meta["description"])
     db.commit()
-    return AutoLabelResponse(suggestions=suggestions, skipped_count=skipped_count)
+
+    if col_result.error:
+        raise HTTPException(status_code=502, detail=col_result.error)
+
+    # Re-query saved suggestions for response compatibility
+    suggestions = [
+        AutoLabelSuggestion(
+            match_value=r.match_value, replace_value=r.replace_value, confidence=r.confidence,
+        )
+        for r in db.query(LabelRule)
+        .filter(
+            LabelRule.dataset_id == dataset_id,
+            LabelRule.column_name == column_name,
+            LabelRule.ai_suggested == True,  # noqa: E712
+        )
+        .order_by(LabelRule.id.desc())
+        .limit(col_result.suggestion_count)
+        .all()
+    ]
+
+    return AutoLabelResponse(suggestions=suggestions, skipped_count=col_result.skipped_count)
 
 
 @router.delete("/datasets/{dataset_id}/columns/{column_name}/auto-label")
@@ -465,6 +513,66 @@ def undo_auto_label(
         .filter(
             LabelRule.dataset_id == dataset_id,
             LabelRule.column_name == column_name,
+            LabelRule.ai_suggested == True,  # noqa: E712
+        )
+        .delete()
+    )
+    db.commit()
+    return {"deleted": count}
+
+
+# --- Batch auto-label ---
+
+
+@router.post("/datasets/{dataset_id}/auto-label", response_model=AutoLabelAllResponse)
+def auto_label_all(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Use AI to suggest label rules for all string columns in a dataset."""
+    from izakaya_api.config import settings
+
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=503, detail="AI service not configured")
+
+    dataset = db.get(Dataset, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    dt = get_dataset_type(dataset.type)
+    if not dt:
+        raise HTTPException(status_code=404, detail="Dataset type not found")
+
+    string_cols = _get_string_columns(dataset.type)
+    if not string_cols:
+        return AutoLabelAllResponse(columns=[], total_suggestions=0, total_skipped=0)
+
+    columns: list[AutoLabelColumnResult] = []
+    for col in string_cols:
+        result = _auto_label_column(db, dataset_id, dt, col["name"], col["description"])
+        columns.append(result)
+
+    db.commit()
+
+    return AutoLabelAllResponse(
+        columns=columns,
+        total_suggestions=sum(c.suggestion_count for c in columns),
+        total_skipped=sum(c.skipped_count for c in columns),
+    )
+
+
+@router.delete("/datasets/{dataset_id}/auto-label")
+def undo_auto_label_all(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Remove all AI-suggested rules for the entire dataset."""
+    count = (
+        db.query(LabelRule)
+        .filter(
+            LabelRule.dataset_id == dataset_id,
             LabelRule.ai_suggested == True,  # noqa: E712
         )
         .delete()

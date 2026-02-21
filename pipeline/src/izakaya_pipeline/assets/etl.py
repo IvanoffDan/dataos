@@ -1,209 +1,75 @@
 import logging
 import os
-from datetime import datetime
 
-import httpx
 import pandas as pd
-from dagster import Field, Int, Out, job, op
+from dagster import (
+    AssetExecutionContext,
+    DynamicPartitionsDefinition,
+    MaterializeResult,
+    MetadataValue,
+    asset,
+)
 from google.cloud import bigquery
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import text
+
+from izakaya_pipeline.assets.validation import get_column_defs, validate_row
+from izakaya_pipeline.resources import BigQueryResource, DatabaseResource
 
 logger = logging.getLogger(__name__)
 
-
-def _get_db_session() -> Session:
-    url = os.getenv("DATABASE_URL", "postgresql://izakaya:izakaya@localhost:55432/izakaya")
-    engine = create_engine(url)
-    return sessionmaker(bind=engine)()
+dataset_partitions = DynamicPartitionsDefinition(name="dataset_id")
 
 
-def _get_bq_client() -> bigquery.Client:
-    project_id = os.getenv("BQ_PROJECT_ID", "")
-    return bigquery.Client(project=project_id)
+def _get_run_context(context: AssetExecutionContext, db_session):
+    """Extract dataset_id, run_id, dataset_type, and bq config from context and DB."""
+    dataset_id = int(context.partition_key)
+    run_id = int(context.run.tags["pipeline_run_id"])
 
+    row = db_session.execute(
+        text("SELECT type FROM datasets WHERE id = :id"), {"id": dataset_id}
+    ).fetchone()
+    if not row:
+        raise ValueError(f"Dataset {dataset_id} not found")
+    dataset_type = row[0]
 
-def _get_column_defs(dataset_type: str) -> list[dict]:
-    """Fetch column definitions from the backend API."""
-    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
-    resp = httpx.get(f"{backend_url}/datasets/types/{dataset_type}/columns")
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _validate_row(
-    row: dict,
-    row_num: int,
-    column_defs: list[dict],
-    data_source_id: int,
-) -> tuple[dict | None, list[dict]]:
-    """Validate a single row. Returns (clean_row_or_None, list_of_errors)."""
-    errors = []
-    clean = {}
-
-    col_map = {c["name"]: c for c in column_defs}
-
-    for col_def in column_defs:
-        name = col_def["name"]
-        value = row.get(name)
-        data_type = col_def["data_type"]
-        required = col_def["required"]
-
-        # Handle None / empty
-        is_empty = value is None or (isinstance(value, str) and value.strip() == "")
-        if pd.isna(value) if not isinstance(value, str) else False:
-            is_empty = True
-
-        if is_empty:
-            if required:
-                errors.append({
-                    "data_source_id": data_source_id,
-                    "row_number": row_num,
-                    "column_name": name,
-                    "error_type": "missing_required",
-                    "error_message": f"Required column '{name}' is missing or empty",
-                    "source_value": str(value) if value is not None else None,
-                })
-            clean[name] = None
-            continue
-
-        # Type coercion and validation
-        str_val = str(value).strip()
-
-        if data_type == "string":
-            max_length = col_def.get("max_length")
-            if max_length and len(str_val) > max_length:
-                errors.append({
-                    "data_source_id": data_source_id,
-                    "row_number": row_num,
-                    "column_name": name,
-                    "error_type": "too_long",
-                    "error_message": (
-                        f"Column '{name}': exceeds max length {max_length} "
-                        f"(got {len(str_val)} characters)"
-                    ),
-                    "source_value": str_val[:100],
-                })
-            clean[name] = str_val
-
-        elif data_type == "integer":
-            try:
-                int_val = int(float(str_val))
-                min_value = col_def.get("min_value")
-                if min_value is not None and int_val < min_value:
-                    errors.append({
-                        "data_source_id": data_source_id,
-                        "row_number": row_num,
-                        "column_name": name,
-                        "error_type": "out_of_range",
-                        "error_message": (
-                            f"Column '{name}': expected integer >= {int(min_value)}, got '{int_val}'"
-                        ),
-                        "source_value": str_val,
-                    })
-                clean[name] = int_val
-            except (ValueError, TypeError):
-                errors.append({
-                    "data_source_id": data_source_id,
-                    "row_number": row_num,
-                    "column_name": name,
-                    "error_type": "invalid_type",
-                    "error_message": f"Column '{name}': expected integer, got '{str_val}'",
-                    "source_value": str_val[:100],
-                })
-                clean[name] = None
-
-        elif data_type == "float":
-            try:
-                float_val = float(str_val)
-                min_value = col_def.get("min_value")
-                if min_value is not None and float_val < min_value:
-                    errors.append({
-                        "data_source_id": data_source_id,
-                        "row_number": row_num,
-                        "column_name": name,
-                        "error_type": "out_of_range",
-                        "error_message": (
-                            f"Column '{name}': expected numeric >= {min_value}, got '{float_val}'"
-                        ),
-                        "source_value": str_val,
-                    })
-                clean[name] = float_val
-            except (ValueError, TypeError):
-                errors.append({
-                    "data_source_id": data_source_id,
-                    "row_number": row_num,
-                    "column_name": name,
-                    "error_type": "invalid_type",
-                    "error_message": f"Column '{name}': expected numeric, got '{str_val}'",
-                    "source_value": str_val[:100],
-                })
-                clean[name] = None
-
-        elif data_type == "date":
-            fmt = col_def.get("format", "yyyy-MM-dd")
-            py_fmt = fmt.replace("yyyy", "%Y").replace("MM", "%m").replace("dd", "%d")
-            try:
-                parsed = datetime.strptime(str_val, py_fmt)
-                clean[name] = parsed.strftime("%Y-%m-%d")
-            except ValueError:
-                # Try ISO format as fallback
-                try:
-                    parsed = datetime.fromisoformat(str_val[:10])
-                    clean[name] = parsed.strftime("%Y-%m-%d")
-                except ValueError:
-                    errors.append({
-                        "data_source_id": data_source_id,
-                        "row_number": row_num,
-                        "column_name": name,
-                        "error_type": "invalid_format",
-                        "error_message": (
-                            f"Column '{name}': expected format '{fmt}', got '{str_val}'"
-                        ),
-                        "source_value": str_val[:100],
-                    })
-                    clean[name] = None
-        else:
-            clean[name] = str_val
-
-    return clean, errors
-
-
-@op(
-    config_schema={
-        "dataset_id": Field(Int, description="ID of the dataset to process"),
-        "run_id": Field(Int, description="ID of the pipeline run record"),
-    },
-    out={"result": Out()},
-)
-def run_etl(context) -> dict:
-    """ETL op: read from BQ, normalize, validate, write output."""
-    dataset_id = context.op_config["dataset_id"]
-    run_id = context.op_config["run_id"]
-
-    db = _get_db_session()
-    bq = _get_bq_client()
     bq_dataset = os.getenv("BQ_DATASET", "izakaya_warehouse")
     bq_project = os.getenv("BQ_PROJECT_ID", "")
 
+    return dataset_id, run_id, dataset_type, bq_dataset, bq_project
+
+
+def _fail_run(db_session, run_id: int, summary: str):
+    """Mark a pipeline run as failed."""
+    db_session.execute(
+        text("""
+            UPDATE pipeline_runs
+            SET status = 'failed', completed_at = now(), error_summary = :summary
+            WHERE id = :id
+        """),
+        {"id": run_id, "summary": summary[:500]},
+    )
+    db_session.commit()
+
+
+@asset(partitions_def=dataset_partitions)
+def mapped_dataset(
+    context: AssetExecutionContext,
+    database: DatabaseResource,
+    bigquery_resource: BigQueryResource,
+) -> MaterializeResult:
+    """Read BQ sources, apply column mappings, merge into a staging table."""
+    db = database.get_session()
+    bq = bigquery_resource.get_client()
+
     try:
+        dataset_id, run_id, dataset_type, bq_dataset, bq_project = _get_run_context(context, db)
+
         # Update run status to running
         db.execute(
             text("UPDATE pipeline_runs SET status = 'running', started_at = now() WHERE id = :id"),
             {"id": run_id},
         )
         db.commit()
-
-        # Load dataset
-        row = db.execute(
-            text("SELECT type FROM datasets WHERE id = :id"), {"id": dataset_id}
-        ).fetchone()
-        if not row:
-            raise ValueError(f"Dataset {dataset_id} not found")
-        dataset_type = row[0]
-
-        # Load column defs from backend API
-        column_defs = _get_column_defs(dataset_type)
 
         # Load mapped data sources
         sources = db.execute(
@@ -216,22 +82,11 @@ def run_etl(context) -> dict:
             {"dataset_id": dataset_id},
         ).fetchall()
 
-        # Load label rules for this dataset, grouped by column
-        label_rows = db.execute(
-            text("""
-                SELECT column_name, match_value, replace_value
-                FROM label_rules WHERE dataset_id = :id
-            """),
-            {"id": dataset_id},
-        ).fetchall()
-        rules_by_col: dict[str, dict[str, str]] = {}
-        for col_name, match_val, replace_val in label_rows:
-            rules_by_col.setdefault(col_name, {})[match_val.lower().strip()] = replace_val
+        if not sources:
+            _fail_run(db, run_id, "No mapped data sources found")
+            raise ValueError("No mapped data sources found")
 
-        all_valid_rows: list[dict] = []
-        all_errors: list[dict] = []
-        total_processed = 0
-
+        frames = []
         for source in sources:
             source_id, bq_table, _, schema_name = source
 
@@ -248,8 +103,8 @@ def run_etl(context) -> dict:
                 continue
 
             # Separate column mappings from static mappings
-            col_mapping = {}  # source_column -> target_column
-            static_mapping = {}  # target_column -> static_value
+            col_mapping = {}
+            static_mapping = {}
             for r in mapping_rows:
                 source_col, target_col, static_val = r
                 if static_val is not None:
@@ -257,44 +112,22 @@ def run_etl(context) -> dict:
                 elif source_col:
                     col_mapping[source_col] = target_col
 
-            # Read from BQ (only column-mapped columns)
+            # Read from BQ
             if col_mapping:
-                source_cols = ", ".join(
-                    f"`{sc}`" for sc in col_mapping.keys()
-                )
+                source_cols = ", ".join(f"`{sc}`" for sc in col_mapping.keys())
                 query = f"SELECT {source_cols} FROM `{bq_project}.{schema_name}.{bq_table}`"
-
                 try:
                     df = bq.query(query).to_dataframe()
                 except Exception as e:
                     logger.error(f"Failed to read BQ table {schema_name}.{bq_table}: {e}")
-                    all_errors.append({
-                        "data_source_id": source_id,
-                        "row_number": 0,
-                        "column_name": "",
-                        "error_type": "bq_read_error",
-                        "error_message": f"Failed to read source table: {str(e)[:200]}",
-                        "source_value": None,
-                    })
                     continue
-
-                # Rename columns per mapping
                 df = df.rename(columns=col_mapping)
             else:
-                # All mappings are static — still need to know how many rows
                 query = f"SELECT COUNT(*) as cnt FROM `{bq_project}.{schema_name}.{bq_table}`"
                 try:
                     row_count = bq.query(query).to_dataframe().iloc[0]["cnt"]
                 except Exception as e:
                     logger.error(f"Failed to read BQ table {schema_name}.{bq_table}: {e}")
-                    all_errors.append({
-                        "data_source_id": source_id,
-                        "row_number": 0,
-                        "column_name": "",
-                        "error_type": "bq_read_error",
-                        "error_message": f"Failed to read source table: {str(e)[:200]}",
-                        "source_value": None,
-                    })
                     continue
                 df = pd.DataFrame(index=range(row_count))
 
@@ -302,28 +135,170 @@ def run_etl(context) -> dict:
             for target_col, static_val in static_mapping.items():
                 df[target_col] = static_val
 
-            # Apply label rules (case-insensitive replacement)
-            for col_name, lower_map in rules_by_col.items():
-                if col_name in df.columns:
-                    temp = df[col_name].astype(str).str.lower().str.strip()
-                    mapped = temp.map(lower_map)
-                    mask = mapped.notna()
-                    df.loc[mask, col_name] = mapped[mask]
+            # Track source origin
+            df["__data_source_id"] = source_id
+            frames.append(df)
 
-            # Validate each row
-            for idx, row_data in df.iterrows():
-                row_num = int(idx) + 1
-                total_processed += 1
-                clean_row, row_errors = _validate_row(
-                    row_data.to_dict(), row_num, column_defs, source_id
-                )
-                all_errors.extend(row_errors)
-                if clean_row and not any(
-                    e["error_type"] == "missing_required" for e in row_errors
-                ):
-                    all_valid_rows.append(clean_row)
+        if not frames:
+            _fail_run(db, run_id, "No data read from any source")
+            raise ValueError("No data read from any source")
 
-        # Write valid rows to BQ output table
+        merged = pd.concat(frames, ignore_index=True)
+
+        # Write to staging table
+        staging_table = f"{bq_project}.{bq_dataset}.{dataset_type}_mapped"
+        job_config = bigquery.LoadJobConfig(
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        )
+        load_job = bq.load_table_from_dataframe(merged, staging_table, job_config=job_config)
+        load_job.result()
+        logger.info(f"Wrote {len(merged)} rows to {staging_table}")
+
+        return MaterializeResult(
+            metadata={
+                "row_count": MetadataValue.int(len(merged)),
+                "source_count": MetadataValue.int(len(frames)),
+                "staging_table": MetadataValue.text(staging_table),
+            }
+        )
+
+    except Exception as e:
+        logger.exception(f"mapped_dataset failed for dataset {context.partition_key}")
+        try:
+            run_id = int(context.run.tags["pipeline_run_id"])
+            _fail_run(db, run_id, str(e))
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
+
+
+@asset(partitions_def=dataset_partitions, deps=[mapped_dataset])
+def labelled_dataset(
+    context: AssetExecutionContext,
+    database: DatabaseResource,
+    bigquery_resource: BigQueryResource,
+) -> MaterializeResult:
+    """Apply label rules to mapped data and track coverage."""
+    db = database.get_session()
+    bq = bigquery_resource.get_client()
+
+    try:
+        dataset_id, run_id, dataset_type, bq_dataset, bq_project = _get_run_context(context, db)
+
+        # Read from mapped staging table
+        mapped_table = f"{bq_project}.{bq_dataset}.{dataset_type}_mapped"
+        query = f"SELECT * FROM `{mapped_table}`"
+        df = bq.query(query).to_dataframe()
+
+        # Load label rules for this dataset, grouped by column
+        label_rows = db.execute(
+            text("""
+                SELECT column_name, match_value, replace_value
+                FROM label_rules WHERE dataset_id = :id
+            """),
+            {"id": dataset_id},
+        ).fetchall()
+        rules_by_col: dict[str, dict[str, str]] = {}
+        for col_name, match_val, replace_val in label_rows:
+            rules_by_col.setdefault(col_name, {})[match_val.lower().strip()] = replace_val
+
+        # Compute __fully_labelled before applying rules
+        fully_labelled = pd.Series(True, index=df.index)
+        for col_name, lower_map in rules_by_col.items():
+            if col_name in df.columns:
+                temp = df[col_name].astype(str).str.lower().str.strip()
+                fully_labelled &= temp.isin(lower_map.keys())
+
+        # Apply label rules (case-insensitive replacement)
+        for col_name, lower_map in rules_by_col.items():
+            if col_name in df.columns:
+                temp = df[col_name].astype(str).str.lower().str.strip()
+                mapped = temp.map(lower_map)
+                mask = mapped.notna()
+                df.loc[mask, col_name] = mapped[mask]
+
+        df["__fully_labelled"] = fully_labelled
+
+        # Write ALL rows to labelled table
+        labelled_table = f"{bq_project}.{bq_dataset}.{dataset_type}_labelled"
+        job_config = bigquery.LoadJobConfig(
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        )
+        load_job = bq.load_table_from_dataframe(df, labelled_table, job_config=job_config)
+        load_job.result()
+
+        fully_labelled_count = int(fully_labelled.sum())
+        coverage_pct = round(fully_labelled_count / len(df) * 100, 1) if len(df) > 0 else 0.0
+        logger.info(
+            f"Wrote {len(df)} rows to {labelled_table} "
+            f"({fully_labelled_count} fully labelled, {coverage_pct}% coverage)"
+        )
+
+        return MaterializeResult(
+            metadata={
+                "row_count": MetadataValue.int(len(df)),
+                "fully_labelled_count": MetadataValue.int(fully_labelled_count),
+                "coverage_pct": MetadataValue.float(coverage_pct),
+            }
+        )
+
+    except Exception as e:
+        logger.exception(f"labelled_dataset failed for dataset {context.partition_key}")
+        try:
+            run_id = int(context.run.tags["pipeline_run_id"])
+            _fail_run(db, run_id, str(e))
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
+
+
+@asset(partitions_def=dataset_partitions, deps=[labelled_dataset])
+def datamart(
+    context: AssetExecutionContext,
+    database: DatabaseResource,
+    bigquery_resource: BigQueryResource,
+) -> MaterializeResult:
+    """Filter to fully labelled rows, validate, and write clean output."""
+    db = database.get_session()
+    bq = bigquery_resource.get_client()
+
+    try:
+        dataset_id, run_id, dataset_type, bq_dataset, bq_project = _get_run_context(context, db)
+
+        # Read from labelled table
+        labelled_table = f"{bq_project}.{bq_dataset}.{dataset_type}_labelled"
+        query = f"SELECT * FROM `{labelled_table}`"
+        df = bq.query(query).to_dataframe()
+
+        rows_input = len(df)
+
+        # Filter to fully labelled rows only
+        df_labelled = df[df["__fully_labelled"] == True].copy()  # noqa: E712
+        rows_fully_labelled = len(df_labelled)
+
+        # Load column defs for validation
+        column_defs = get_column_defs(dataset_type)
+
+        all_valid_rows: list[dict] = []
+        all_errors: list[dict] = []
+
+        for idx, row_data in df_labelled.iterrows():
+            row_num = int(idx) + 1
+            data_source_id = int(row_data.get("__data_source_id", 0))
+            clean_row, row_errors = validate_row(
+                row_data.to_dict(), row_num, column_defs, data_source_id
+            )
+            all_errors.extend(row_errors)
+            if clean_row and not any(
+                e["error_type"] == "missing_required" for e in row_errors
+            ):
+                all_valid_rows.append(clean_row)
+
+        # Write valid rows to datamart table
         output_table = f"{bq_project}.{bq_dataset}.{dataset_type}"
         if all_valid_rows:
             out_df = pd.DataFrame(all_valid_rows)
@@ -348,17 +323,17 @@ def run_etl(context) -> dict:
                     {"run_id": run_id, **err},
                 )
 
-        # Update run status
-        rows_failed = len([e for e in all_errors if e.get("error_type") == "missing_required"])
-        status = "success" if not all_errors else "success"
-        if not sources:
+        # Determine final status
+        rows_failed = len(all_errors)
+        if not all_valid_rows:
             status = "failed"
-            error_summary = "No mapped data sources found"
-        elif not all_valid_rows and all_errors:
-            status = "failed"
-            error_summary = f"All rows failed validation ({len(all_errors)} errors)"
+            if rows_fully_labelled == 0:
+                error_summary = f"No fully labelled rows (0 of {rows_input} rows matched all label rules)"
+            else:
+                error_summary = f"All {rows_fully_labelled} labelled rows failed validation ({rows_failed} errors)"
         else:
-            error_summary = f"{len(all_errors)} validation errors" if all_errors else None
+            status = "success"
+            error_summary = f"{rows_failed} validation errors" if all_errors else None
 
         db.execute(
             text("""
@@ -372,35 +347,29 @@ def run_etl(context) -> dict:
                 "id": run_id,
                 "status": status,
                 "processed": len(all_valid_rows),
-                "failed": len(all_errors),
+                "failed": rows_failed,
                 "summary": error_summary,
             },
         )
         db.commit()
 
-        return {
-            "status": status,
-            "rows_processed": len(all_valid_rows),
-            "errors": len(all_errors),
-        }
+        return MaterializeResult(
+            metadata={
+                "rows_input": MetadataValue.int(rows_input),
+                "rows_fully_labelled": MetadataValue.int(rows_fully_labelled),
+                "rows_valid": MetadataValue.int(len(all_valid_rows)),
+                "rows_failed": MetadataValue.int(rows_failed),
+                "output_table": MetadataValue.text(output_table),
+            }
+        )
 
     except Exception as e:
-        logger.exception(f"ETL failed for dataset {dataset_id}")
-        db.execute(
-            text("""
-                UPDATE pipeline_runs
-                SET status = 'failed', completed_at = now(),
-                    error_summary = :summary
-                WHERE id = :id
-            """),
-            {"id": run_id, "summary": str(e)[:500]},
-        )
-        db.commit()
+        logger.exception(f"datamart failed for dataset {context.partition_key}")
+        try:
+            run_id = int(context.run.tags["pipeline_run_id"])
+            _fail_run(db, run_id, str(e))
+        except Exception:
+            pass
         raise
     finally:
         db.close()
-
-
-@job
-def etl_job():
-    run_etl()
