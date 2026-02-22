@@ -240,8 +240,8 @@ function EmptyOnboarding() {
     },
     {
       num: 2,
-      label: "Define datasets",
-      desc: "Create logical dataset schemas",
+      label: "Define data sources",
+      desc: "Create logical data source schemas",
     },
     {
       num: 3,
@@ -429,12 +429,12 @@ function DashboardContent() {
           icon={<PlugIcon />}
         />
         <MetricCard
-          title="Datasets"
+          title="Data Sources"
           value={data.dataset_count}
           subtitle={
             data.datasets.filter((d) => d.source_count > 0).length > 0
-              ? `${data.datasets.filter((d) => d.source_count > 0).length} with sources`
-              : "No sources mapped"
+              ? `${data.datasets.filter((d) => d.source_count > 0).length} with connectors`
+              : "No connectors mapped"
           }
           icon={<DatabaseIcon />}
         />
@@ -449,7 +449,7 @@ function DashboardContent() {
           value={`${data.total_label_rules} rules`}
           subtitle={
             data.datasets_with_rules > 0
-              ? `across ${data.datasets_with_rules} dataset${data.datasets_with_rules > 1 ? "s" : ""}`
+              ? `across ${data.datasets_with_rules} data source${data.datasets_with_rules > 1 ? "s" : ""}`
               : "No rules yet"
           }
           icon={<TagIcon />}
@@ -568,11 +568,11 @@ function DashboardContent() {
         </Card>
       </div>
 
-      {/* Datasets table */}
+      {/* Data Sources table */}
       <Card className="hover:shadow-md transition-shadow">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Datasets</CardTitle>
+            <CardTitle className="text-base">Data Sources</CardTitle>
             <Link
               href="/datasets"
               className="text-xs text-[var(--accent)] hover:underline"
@@ -584,7 +584,7 @@ function DashboardContent() {
         <CardContent className="pt-0">
           {data.datasets.length === 0 ? (
             <p className="text-sm text-[var(--muted-foreground)] py-4">
-              No datasets yet.{" "}
+              No data sources yet.{" "}
               <Link
                 href="/datasets"
                 className="text-[var(--accent)] hover:underline"
@@ -599,7 +599,7 @@ function DashboardContent() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Type</TableHead>
-                    <TableHead className="text-center">Sources</TableHead>
+                    <TableHead className="text-center">Connectors</TableHead>
                     <TableHead>Latest Run</TableHead>
                     <TableHead className="text-center">Label Rules</TableHead>
                   </TableRow>

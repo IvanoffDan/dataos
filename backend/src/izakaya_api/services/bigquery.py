@@ -52,6 +52,10 @@ def _output_table(dataset_type: str) -> str:
     return f"`{settings.bq_project_id}.{settings.bq_dataset}.{dataset_type}`"
 
 
+def _history_table(dataset_type: str) -> str:
+    return f"`{settings.bq_project_id}.{settings.bq_dataset}.{dataset_type}_history`"
+
+
 def _validate_column_name(col: str) -> None:
     if not _SAFE_COL.match(col):
         raise HTTPException(status_code=400, detail=f"Invalid column name: {col}")
@@ -476,3 +480,106 @@ def get_mapped_table_preview(
         return {"rows": rows, "total_count": total_count, "columns": columns}
     except (NotFound, Forbidden, BadRequest):
         return {"rows": [], "total_count": 0, "columns": []}
+
+
+# --- History table helpers (for releases) ---
+
+
+def get_history_kpi_summary(dataset_type: str, dataset_id: int, version: int, metric_defs: list) -> dict | None:
+    """KPI summary from the history table for a specific dataset version."""
+    client = get_bq_client()
+    table = _history_table(dataset_type)
+
+    metric_sqls = [f"{m.sql_expression} AS {m.id}" for m in metric_defs]
+    metrics_clause = ", ".join(metric_sqls)
+
+    query = (
+        f"SELECT COUNT(*) AS total_rows, MIN(date) AS min_date, MAX(date) AS max_date, "
+        f"{metrics_clause} FROM {table} "
+        f"WHERE _dataset_id = @dataset_id AND _version = @version"
+    )
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("dataset_id", "INT64", dataset_id),
+            bigquery.ScalarQueryParameter("version", "INT64", version),
+        ]
+    )
+
+    try:
+        rows = list(client.query(query, job_config=job_config).result())
+    except (NotFound, Forbidden, BadRequest):
+        return None
+
+    if not rows:
+        return None
+
+    row = rows[0]
+    metrics = {}
+    for m in metric_defs:
+        val = row[m.id]
+        metrics[m.id] = float(val) if val is not None else 0
+
+    return {
+        "total_rows": row["total_rows"],
+        "min_date": str(row["min_date"]) if row["min_date"] else None,
+        "max_date": str(row["max_date"]) if row["max_date"] else None,
+        "metrics": metrics,
+    }
+
+
+def get_history_table_data(
+    dataset_type: str,
+    dataset_id: int,
+    version: int,
+    offset: int = 0,
+    limit: int = 50,
+    sort_column: str | None = None,
+    sort_dir: str = "desc",
+) -> dict:
+    """Paginated data from the history table for a specific dataset version."""
+    client = get_bq_client()
+    table = _history_table(dataset_type)
+
+    params = [
+        bigquery.ScalarQueryParameter("dataset_id", "INT64", dataset_id),
+        bigquery.ScalarQueryParameter("version", "INT64", version),
+    ]
+    where = "WHERE _dataset_id = @dataset_id AND _version = @version"
+
+    # Get total count
+    count_query = f"SELECT COUNT(*) AS cnt FROM {table} {where}"
+    job_config = bigquery.QueryJobConfig(query_parameters=params)
+    try:
+        count_rows = list(client.query(count_query, job_config=job_config).result())
+        total_count = count_rows[0]["cnt"]
+    except (NotFound, Forbidden, BadRequest):
+        return {"rows": [], "total_count": 0, "columns": []}
+
+    # Get rows (exclude metadata columns)
+    order_clause = "ORDER BY date DESC"
+    if sort_column:
+        _validate_column_name(sort_column)
+        direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
+        order_clause = f"ORDER BY `{sort_column}` {direction}"
+
+    data_query = (
+        f"SELECT * EXCEPT(_version, _pipeline_run_id, _snapshot_at, _dataset_id) "
+        f"FROM {table} {where} "
+        f"{order_clause} LIMIT {int(limit)} OFFSET {int(offset)}"
+    )
+    job_config = bigquery.QueryJobConfig(query_parameters=params)
+    try:
+        result = client.query(data_query, job_config=job_config).result()
+    except (NotFound, Forbidden, BadRequest):
+        return {"rows": [], "total_count": 0, "columns": []}
+
+    columns = [field.name for field in result.schema]
+    rows = [dict(row) for row in result]
+
+    for row in rows:
+        for k, v in row.items():
+            if hasattr(v, "isoformat"):
+                row[k] = v.isoformat()
+
+    return {"rows": rows, "total_count": total_count, "columns": columns}

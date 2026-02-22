@@ -35,14 +35,19 @@ function DatasetList() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-[var(--primary)]">Datasets</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--primary)]">Data Sources</h1>
+          <p className="text-sm text-[var(--muted-foreground)] mt-1">
+            Define output schemas for your data. Each data source maps ingested connector data into a standardised format for analysis.
+          </p>
+        </div>
         <Button asChild>
-          <Link href="/datasets/new">Create Dataset</Link>
+          <Link href="/datasets/new">Create Data Source</Link>
         </Button>
       </div>
       {datasets.length === 0 ? (
         <p className="text-[var(--muted-foreground)]">
-          No datasets created yet.
+          No data sources created yet.
         </p>
       ) : (
         <div className="rounded-lg border border-[var(--border)] bg-white">

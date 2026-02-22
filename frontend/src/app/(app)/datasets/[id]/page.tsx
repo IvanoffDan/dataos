@@ -87,6 +87,7 @@ interface PipelineRun {
   completed_at: string | null;
   rows_processed: number;
   rows_failed: number;
+  version: number | null;
   error_summary: string | null;
   created_at: string;
 }
@@ -340,7 +341,7 @@ function DatasetDetail() {
           href="/datasets"
           className="text-[var(--primary)] hover:underline text-sm"
         >
-          &larr; Back to Datasets
+          &larr; Back to Data Sources
         </Link>
       </div>
 
@@ -458,15 +459,15 @@ function DatasetDetail() {
       {/* Data Sources */}
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">Data Sources</CardTitle>
+          <CardTitle className="text-lg">Connectors</CardTitle>
           <Button size="sm" onClick={() => setAddSourceOpen(true)}>
-            Add Source
+            Add Connector
           </Button>
         </CardHeader>
         <CardContent>
           {sources.length === 0 ? (
             <p className="text-[var(--muted-foreground)] text-sm">
-              No data sources linked yet. Add a source to start mapping columns.
+              No connectors linked yet. Add a connector to start mapping columns.
             </p>
           ) : (
             <Table>
@@ -537,6 +538,7 @@ function DatasetDetail() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Status</TableHead>
+                  <TableHead>Version</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Rows OK</TableHead>
                   <TableHead>Rows Failed</TableHead>
@@ -550,6 +552,13 @@ function DatasetDetail() {
                       <Badge variant={runStatusVariant(r.status)}>
                         {r.status}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {r.version != null ? (
+                        <Badge variant="secondary">v{r.version}</Badge>
+                      ) : (
+                        "\u2014"
+                      )}
                     </TableCell>
                     <TableCell className="text-[var(--muted-foreground)]">
                       {r.started_at
@@ -590,7 +599,7 @@ function DatasetDetail() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Data Source</DialogTitle>
+            <DialogTitle>Add Connector</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
@@ -654,7 +663,7 @@ function DatasetDetail() {
               onClick={handleAddSource}
               disabled={!selectedConnector || !selectedTable || addingSource}
             >
-              {addingSource ? "Adding..." : "Add Source"}
+              {addingSource ? "Adding..." : "Add Connector"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -721,8 +730,8 @@ function DatasetDetail() {
         open={deleteOpen}
         onConfirm={handleDelete}
         onCancel={() => setDeleteOpen(false)}
-        title="Delete Dataset"
-        description={`Are you sure you want to delete "${dataset.name}"? This will remove all data sources, mappings, and pipeline runs.`}
+        title="Delete Data Source"
+        description={`Are you sure you want to delete "${dataset.name}"? This will remove all connectors, mappings, and pipeline runs.`}
         confirmLabel="Delete"
         variant="destructive"
         loading={deleting}
@@ -732,8 +741,8 @@ function DatasetDetail() {
         open={editOpen}
         onSave={handleSave}
         onCancel={() => setEditOpen(false)}
-        title="Rename Dataset"
-        label="Dataset Name"
+        title="Rename Data Source"
+        label="Data Source Name"
         defaultValue={dataset.name}
         loading={saving}
       />

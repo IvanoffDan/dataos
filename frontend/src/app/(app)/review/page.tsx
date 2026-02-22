@@ -101,7 +101,7 @@ function ReviewList() {
         </div>
       ) : datasets.length === 0 ? (
         <p className="text-[var(--muted-foreground)] text-sm">
-          No datasets with completed pipeline runs yet. Run a pipeline first to
+          No data sources with completed pipeline runs yet. Run a pipeline first to
           explore data here.
         </p>
       ) : (
@@ -109,7 +109,7 @@ function ReviewList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Dataset</TableHead>
+                <TableHead>Data Source</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Total Rows</TableHead>
                 <TableHead>Date Range</TableHead>

@@ -65,6 +65,13 @@ new gcp.projects.IAMMember("github-run-admin", {
   member: githubServiceAccount.email.apply((e) => `serviceAccount:${e}`),
 });
 
+// Cloud SQL admin (modify instances — e.g. tier changes)
+new gcp.projects.IAMMember("github-cloudsql-admin", {
+  project,
+  role: "roles/cloudsql.admin",
+  member: githubServiceAccount.email.apply((e) => `serviceAccount:${e}`),
+});
+
 // Act as the app service account (needed for Cloud Run deploy)
 new gcp.serviceaccount.IAMMember("github-acts-as-app", {
   serviceAccountId: appServiceAccount.name,

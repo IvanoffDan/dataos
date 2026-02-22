@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime, timezone
 
 import pandas as pd
 from dagster import (
@@ -300,6 +301,7 @@ def datamart(
 
         # Write valid rows to datamart table
         output_table = f"{bq_project}.{bq_dataset}.{dataset_type}"
+        next_version = None
         if all_valid_rows:
             out_df = pd.DataFrame(all_valid_rows)
             job_config = bigquery.LoadJobConfig(
@@ -308,6 +310,32 @@ def datamart(
             load_job = bq.load_table_from_dataframe(out_df, output_table, job_config=job_config)
             load_job.result()
             logger.info(f"Wrote {len(all_valid_rows)} rows to {output_table}")
+
+            # Compute next version and write to history table
+            ver_row = db.execute(
+                text("SELECT COALESCE(MAX(version), 0) FROM pipeline_runs WHERE dataset_id = :did"),
+                {"did": dataset_id},
+            ).scalar()
+            next_version = (ver_row or 0) + 1
+
+            history_df = out_df.copy()
+            history_df["_version"] = next_version
+            history_df["_pipeline_run_id"] = run_id
+            history_df["_snapshot_at"] = datetime.now(timezone.utc)
+            history_df["_dataset_id"] = dataset_id
+
+            history_table = f"{bq_project}.{bq_dataset}.{dataset_type}_history"
+            history_config = bigquery.LoadJobConfig(
+                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                time_partitioning=bigquery.TimePartitioning(
+                    type_=bigquery.TimePartitioningType.DAY,
+                    field="_snapshot_at",
+                ),
+                clustering_fields=["_dataset_id", "_version"],
+            )
+            history_job = bq.load_table_from_dataframe(history_df, history_table, job_config=history_config)
+            history_job.result()
+            logger.info(f"Appended {len(history_df)} rows to {history_table} (version {next_version})")
 
         # Write validation errors to Postgres
         if all_errors:
@@ -340,7 +368,7 @@ def datamart(
                 UPDATE pipeline_runs
                 SET status = :status, completed_at = now(),
                     rows_processed = :processed, rows_failed = :failed,
-                    error_summary = :summary
+                    error_summary = :summary, version = :version
                 WHERE id = :id
             """),
             {
@@ -349,6 +377,7 @@ def datamart(
                 "processed": len(all_valid_rows),
                 "failed": rows_failed,
                 "summary": error_summary,
+                "version": next_version,
             },
         )
         db.commit()

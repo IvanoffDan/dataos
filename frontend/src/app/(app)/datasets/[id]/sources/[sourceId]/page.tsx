@@ -106,7 +106,7 @@ function DataSourceDetail() {
           href={`/datasets/${datasetId}`}
           className="text-[var(--primary)] hover:underline text-sm"
         >
-          &larr; Back to Dataset
+          &larr; Back to Data Source
         </Link>
       </div>
 

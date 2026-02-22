@@ -12,6 +12,7 @@ class PipelineRunResponse(BaseModel):
     error_summary: str | None
     rows_processed: int
     rows_failed: int
+    version: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

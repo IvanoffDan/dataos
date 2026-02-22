@@ -45,7 +45,7 @@ function CreateDataset() {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.detail || "Failed to create dataset");
+        throw new Error(data.detail || "Failed to create data source");
       }
       const dataset = await res.json();
       router.push(`/datasets/${dataset.id}`);
@@ -62,17 +62,17 @@ function CreateDataset() {
           href="/datasets"
           className="text-[var(--primary)] hover:underline text-sm"
         >
-          &larr; Back to Datasets
+          &larr; Back to Data Sources
         </Link>
       </div>
 
       <h1 className="text-2xl font-bold text-[var(--primary)] mb-6">
-        Create Dataset
+        Create Data Source
       </h1>
 
       <Card className="max-w-lg">
         <CardHeader>
-          <CardTitle className="text-lg">Dataset Details</CardTitle>
+          <CardTitle className="text-lg">Data Source Details</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -115,14 +115,14 @@ function CreateDataset() {
                 id="description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief description of this dataset"
+                placeholder="Brief description of this data source"
               />
             </div>
 
             {error && <p className="text-red-600 text-sm">{error}</p>}
 
             <Button type="submit" disabled={submitting || !name.trim()}>
-              {submitting ? "Creating..." : "Create Dataset"}
+              {submitting ? "Creating..." : "Create Data Source"}
             </Button>
           </form>
         </CardContent>

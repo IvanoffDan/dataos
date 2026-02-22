@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from izakaya_api.config import settings
-from izakaya_api.routers import auth, connectors, dashboard, data_sources, datasets, explore, labels, pipeline
+from izakaya_api.routers import auth, connectors, dashboard, data_sources, datasets, explore, labels, pipeline, releases
 
 app = FastAPI(title="DataOS API", redirect_slashes=False)
 
@@ -22,6 +22,7 @@ app.include_router(data_sources.router)
 app.include_router(explore.router)
 app.include_router(labels.router)
 app.include_router(pipeline.router)
+app.include_router(releases.router)
 
 
 @app.get("/health")

@@ -45,13 +45,13 @@ function LabelsDashboard() {
 
       {summaries.length === 0 ? (
         <p className="text-[var(--muted-foreground)]">
-          No datasets found. Create a dataset first to start labelling.
+          No data sources found. Create a data source first to start labelling.
         </p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Dataset</TableHead>
+              <TableHead>Data Source</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Rules</TableHead>
               <TableHead>Columns</TableHead>

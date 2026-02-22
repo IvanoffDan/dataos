@@ -111,7 +111,7 @@ function ColumnOverview() {
   }
 
   if (!data) {
-    return <p className="text-red-600">Failed to load dataset.</p>;
+    return <p className="text-red-600">Failed to load data source.</p>;
   }
 
   const hasBqData = data.total_rows !== null;
@@ -195,7 +195,7 @@ function ColumnOverview() {
 
       {data.columns.length === 0 ? (
         <p className="text-[var(--muted-foreground)]">
-          No string columns found in this dataset type.
+          No string columns found in this data source type.
         </p>
       ) : (
         <Card>

@@ -21,7 +21,10 @@ const sections = [
   },
   {
     group: "QA",
-    links: [{ href: "/review", label: "Review & QA" }],
+    links: [
+      { href: "/review", label: "Review & QA" },
+      { href: "/releases", label: "Releases" },
+    ],
   },
 ];
 
