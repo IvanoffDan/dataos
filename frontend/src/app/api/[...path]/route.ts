@@ -1,7 +1,17 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_URL =
   process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
+
+// Headers that must not be forwarded between hops
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "transfer-encoding",
+  "te",
+  "trailer",
+  "upgrade",
+]);
 
 async function handler(
   req: NextRequest,
@@ -13,20 +23,36 @@ async function handler(
     target.searchParams.set(key, value)
   );
 
-  const headers = new Headers(req.headers);
-  headers.delete("host");
+  const reqHeaders = new Headers(req.headers);
+  reqHeaders.delete("host");
 
   const res = await fetch(target, {
     method: req.method,
-    headers,
+    headers: reqHeaders,
     body: req.body,
     // @ts-expect-error duplex is required for streaming request bodies
     duplex: "half",
   });
 
-  return new Response(res.body, {
+  // Build response headers, skipping hop-by-hop headers
+  const resHeaders = new NextResponse().headers;
+  res.headers.forEach((value, key) => {
+    if (!HOP_BY_HOP.has(key.toLowerCase())) {
+      resHeaders.append(key, value);
+    }
+  });
+
+  // Explicitly forward set-cookie headers (getSetCookie preserves individual values)
+  if (typeof res.headers.getSetCookie === "function") {
+    resHeaders.delete("set-cookie");
+    for (const cookie of res.headers.getSetCookie()) {
+      resHeaders.append("set-cookie", cookie);
+    }
+  }
+
+  return new NextResponse(res.body, {
     status: res.status,
-    headers: res.headers,
+    headers: resHeaders,
   });
 }
 
