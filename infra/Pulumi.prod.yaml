@@ -2,7 +2,7 @@ config:
   gcp:project: izakaya-488118
   gcp:region: us-central1
   izakaya:domain: dos.ivanoffdan.com
-  izakaya:github-repo: dan-ivanov/izakaya
+  izakaya:github-repo: IvanoffDan/dataos
   izakaya:secret-key:
     secure: AAABAEQdn1sGh+niHlB60H7GUWBxifRMi+yRRPW1efOmjdsexem3RFXFW7SIAX2vW3CwmRFOz7hlS8o8Q0Au9a+BEivMyiBBSzOrqGPaAyADyM3qpLqy33v4Agn+XSQ5
   izakaya:fivetran-api-key:
