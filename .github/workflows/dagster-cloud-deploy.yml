@@ -6,6 +6,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths: [pipeline/**]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.ref }}/deploy
@@ -32,7 +33,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.head_ref || github.ref }}
 
       - name: Validate configuration
         id: ci-validate
