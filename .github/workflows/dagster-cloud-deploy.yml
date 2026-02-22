@@ -2,10 +2,10 @@ name: Dagster Cloud Deploy
 on:
   push:
     branches: [main]
-    paths: [pipeline/**]
+    paths: [pipeline/**, dagster_cloud.yaml, .github/workflows/dagster-cloud-deploy.yml]
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    paths: [pipeline/**]
+    paths: [pipeline/**, dagster_cloud.yaml, .github/workflows/dagster-cloud-deploy.yml]
   workflow_dispatch:
 
 concurrency:
