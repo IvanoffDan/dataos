@@ -35,9 +35,11 @@ Thumbs.db
 
 # Dagster
 .dagster/
+.tmp_dagster_home_*/
 storage/
 schedules/
 logs/
+dagster-key.json
 
 # Alembic
 migrations/versions/__pycache__/

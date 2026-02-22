@@ -1,6 +1,16 @@
+import json
 import os
+import tempfile
 
 from dagster import Definitions, define_asset_job
+
+# Dagster Cloud: write SA key JSON to a temp file so google-cloud libraries can find it
+if os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON") and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    _creds = json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS_JSON"])
+    _tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    json.dump(_creds, _tmp)
+    _tmp.flush()
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _tmp.name
 
 from izakaya_pipeline.assets import (
     datamart,
