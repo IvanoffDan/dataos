@@ -35,7 +35,7 @@ Thumbs.db
 
 # Dagster
 .dagster/
-.tmp_dagster_home_*/
+**/.tmp_dagster_home_*/
 storage/
 schedules/
 logs/

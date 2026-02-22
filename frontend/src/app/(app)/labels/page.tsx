@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -108,9 +107,5 @@ function LabelsDashboard() {
 }
 
 export default function LabelsPage() {
-  return (
-    <AuthGuard>
-      <LabelsDashboard />
-    </AuthGuard>
-  );
+  return <LabelsDashboard />;
 }

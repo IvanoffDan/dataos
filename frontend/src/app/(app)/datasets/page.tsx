@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -28,7 +27,7 @@ function DatasetList() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
 
   useEffect(() => {
-    api("/api/datasets/")
+    api("/api/datasets")
       .then((res) => res.json())
       .then(setDatasets);
   }, []);
@@ -87,9 +86,5 @@ function DatasetList() {
 }
 
 export default function DatasetsPage() {
-  return (
-    <AuthGuard>
-      <DatasetList />
-    </AuthGuard>
-  );
+  return <DatasetList />;
 }

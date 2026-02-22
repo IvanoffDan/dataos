@@ -38,7 +38,7 @@ router = APIRouter(prefix="/labels", tags=["labels"])
 # --- Existing CRUD endpoints ---
 
 
-@router.get("/", response_model=list[LabelRuleResponse])
+@router.get("", response_model=list[LabelRuleResponse])
 def list_label_rules(
     dataset_id: int | None = None,
     db: Session = Depends(get_db),
@@ -50,7 +50,7 @@ def list_label_rules(
     return query.order_by(LabelRule.created_at.desc()).all()
 
 
-@router.post("/", response_model=LabelRuleResponse, status_code=201)
+@router.post("", response_model=LabelRuleResponse, status_code=201)
 def create_label_rule(
     body: LabelRuleCreate,
     db: Session = Depends(get_db),

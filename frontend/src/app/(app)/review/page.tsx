@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { fetchKpiSummary, KpiSummary } from "@/lib/explore-api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -42,7 +41,7 @@ function ReviewList() {
   useEffect(() => {
     async function load() {
       const [datasetsRes, runsRes] = await Promise.all([
-        api("/api/datasets/").then((r) => r.json()),
+        api("/api/datasets").then((r) => r.json()),
         // We'll fetch runs per dataset after
         Promise.resolve([]),
       ]);
@@ -153,9 +152,5 @@ function ReviewList() {
 }
 
 export default function ReviewPage() {
-  return (
-    <AuthGuard>
-      <ReviewList />
-    </AuthGuard>
-  );
+  return <ReviewList />;
 }

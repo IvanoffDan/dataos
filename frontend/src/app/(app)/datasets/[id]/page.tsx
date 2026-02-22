@@ -12,7 +12,6 @@ import {
   MetricDef,
   TimeSeriesPoint,
 } from "@/lib/explore-api";
-import { AuthGuard } from "@/components/auth-guard";
 import { KpiCard } from "@/components/charts/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -210,7 +209,7 @@ function DatasetDetail() {
   // Load connectors when add-source dialog opens
   useEffect(() => {
     if (addSourceOpen) {
-      api("/api/connectors/")
+      api("/api/connectors")
         .then((r) => r.json())
         .then(setConnectors);
     }
@@ -743,9 +742,5 @@ function DatasetDetail() {
 }
 
 export default function DatasetDetailPage() {
-  return (
-    <AuthGuard>
-      <DatasetDetail />
-    </AuthGuard>
-  );
+  return <DatasetDetail />;
 }

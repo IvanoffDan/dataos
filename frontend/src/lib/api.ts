@@ -1,5 +1,6 @@
 export function api(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path, {
+  const normalized = path.replace(/\/+$/, "") || path;
+  return fetch(normalized, {
     credentials: "include",
     ...init,
     headers: {

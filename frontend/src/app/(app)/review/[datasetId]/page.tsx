@@ -16,7 +16,6 @@ import {
   BreakdownItem,
   TableDataResponse,
 } from "@/lib/explore-api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KpiCard } from "@/components/charts/kpi-card";
 import { MetricControls } from "@/components/charts/metric-controls";
@@ -337,9 +336,5 @@ function DatasetExplorer() {
 }
 
 export default function DatasetExplorePage() {
-  return (
-    <AuthGuard>
-      <DatasetExplorer />
-    </AuthGuard>
-  );
+  return <DatasetExplorer />;
 }

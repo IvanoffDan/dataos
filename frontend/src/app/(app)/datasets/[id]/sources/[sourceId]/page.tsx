@@ -9,7 +9,6 @@ import {
   fetchMappedPreview,
   PreviewResponse,
 } from "@/lib/explore-api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -204,9 +203,5 @@ function DataSourceDetail() {
 }
 
 export default function DataSourceDetailPage() {
-  return (
-    <AuthGuard>
-      <DataSourceDetail />
-    </AuthGuard>
-  );
+  return <DataSourceDetail />;
 }

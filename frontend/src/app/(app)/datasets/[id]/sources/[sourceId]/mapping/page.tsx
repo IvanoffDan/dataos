@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -414,9 +413,5 @@ function MappingEditor() {
 }
 
 export default function MappingPage() {
-  return (
-    <AuthGuard>
-      <MappingEditor />
-    </AuthGuard>
-  );
+  return <MappingEditor />;
 }

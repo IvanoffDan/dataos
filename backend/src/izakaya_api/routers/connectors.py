@@ -43,12 +43,12 @@ def get_connector_types(_user: User = Depends(get_current_user)):
     return list_connector_types()
 
 
-@router.get("/", response_model=list[ConnectorResponse])
+@router.get("", response_model=list[ConnectorResponse])
 def list_connectors(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     return db.query(Connector).order_by(Connector.created_at.desc()).all()
 
 
-@router.post("/", response_model=ConnectorCreateResponse, status_code=201)
+@router.post("", response_model=ConnectorCreateResponse, status_code=201)
 def create_connector(
     body: ConnectorCreateRequest,
     db: Session = Depends(get_db),

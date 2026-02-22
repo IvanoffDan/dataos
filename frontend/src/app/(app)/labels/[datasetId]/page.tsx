@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -274,9 +273,5 @@ function ColumnOverview() {
 }
 
 export default function ColumnOverviewPage() {
-  return (
-    <AuthGuard>
-      <ColumnOverview />
-    </AuthGuard>
-  );
+  return <ColumnOverview />;
 }

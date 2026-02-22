@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -110,7 +109,7 @@ function ConnectorList() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = () =>
-    api("/api/connectors/")
+    api("/api/connectors")
       .then((res) => res.json())
       .then(setConnectors);
 
@@ -207,9 +206,5 @@ function ConnectorList() {
 }
 
 export default function ConnectorsPage() {
-  return (
-    <AuthGuard>
-      <ConnectorList />
-    </AuthGuard>
-  );
+  return <ConnectorList />;
 }

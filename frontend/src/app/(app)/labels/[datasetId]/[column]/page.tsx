@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -447,9 +446,5 @@ function ColumnEditor() {
 }
 
 export default function ColumnEditorPage() {
-  return (
-    <AuthGuard>
-      <ColumnEditor />
-    </AuthGuard>
-  );
+  return <ColumnEditor />;
 }

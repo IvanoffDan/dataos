@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { logout } from "@/lib/auth";
 
 const sections = [
   {
@@ -26,6 +27,12 @@ const sections = [
 
 export function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
+  };
 
   return (
     <aside className="w-56 min-h-screen bg-[var(--sidebar)] text-[var(--sidebar-foreground)] p-4 flex flex-col">
@@ -65,6 +72,12 @@ export function Nav() {
           </div>
         ))}
       </nav>
+      <button
+        onClick={handleLogout}
+        className="mt-4 px-3 py-2 text-sm text-white/50 hover:text-white hover:bg-[var(--sidebar-muted)] rounded-md transition-colors text-left"
+      >
+        Sign out
+      </button>
     </aside>
   );
 }

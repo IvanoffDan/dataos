@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -126,7 +125,7 @@ function NewConnector() {
     setLoading(true);
     setError("");
     try {
-      const res = await api("/api/connectors/", {
+      const res = await api("/api/connectors", {
         method: "POST",
         body: JSON.stringify({ name: name.trim(), service }),
       });
@@ -236,9 +235,5 @@ function NewConnector() {
 }
 
 export default function NewConnectorPage() {
-  return (
-    <AuthGuard>
-      <NewConnector />
-    </AuthGuard>
-  );
+  return <NewConnector />;
 }

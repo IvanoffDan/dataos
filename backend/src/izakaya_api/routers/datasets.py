@@ -75,12 +75,12 @@ def get_dataset_type_columns(type_id: str):
 # --- Dataset CRUD ---
 
 
-@router.get("/", response_model=list[DatasetResponse])
+@router.get("", response_model=list[DatasetResponse])
 def list_datasets(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     return db.query(Dataset).order_by(Dataset.created_at.desc()).all()
 
 
-@router.post("/", response_model=DatasetResponse, status_code=201)
+@router.post("", response_model=DatasetResponse, status_code=201)
 def create_dataset(
     body: DatasetCreate,
     db: Session = Depends(get_db),

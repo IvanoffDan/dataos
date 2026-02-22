@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,7 +39,7 @@ function CreateDataset() {
     setSubmitting(true);
     setError("");
     try {
-      const res = await api("/api/datasets/", {
+      const res = await api("/api/datasets", {
         method: "POST",
         body: JSON.stringify({ name: name.trim(), type, description }),
       });
@@ -133,9 +132,5 @@ function CreateDataset() {
 }
 
 export default function CreateDatasetPage() {
-  return (
-    <AuthGuard>
-      <CreateDataset />
-    </AuthGuard>
-  );
+  return <CreateDataset />;
 }
