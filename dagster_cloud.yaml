@@ -2,4 +2,5 @@ locations:
   - location_name: izakaya-pipeline
     code_source:
       package_name: izakaya_pipeline
-    working_directory: .
+    build:
+      directory: pipeline
