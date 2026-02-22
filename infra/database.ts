@@ -19,7 +19,7 @@ export const instance = new gcp.sql.DatabaseInstance(
     databaseVersion: "POSTGRES_15",
     region,
     settings: {
-      tier: "db-f1-micro",
+      tier: "db-g1-small",
       ipConfiguration: {
         ipv4Enabled: true, // Public IP for Dagster Cloud
         privateNetwork: network.selfLink,

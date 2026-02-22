@@ -8,10 +8,15 @@ from sqlalchemy.orm import sessionmaker
 logger = logging.getLogger(__name__)
 
 
+_sensor_engine = None
+
+
 def _get_db_session():
+    global _sensor_engine
     url = os.getenv("DATABASE_URL", "postgresql://izakaya:izakaya@localhost:55432/izakaya")
-    engine = create_engine(url)
-    return sessionmaker(bind=engine)()
+    if _sensor_engine is None:
+        _sensor_engine = create_engine(url, pool_size=2, max_overflow=3)
+    return sessionmaker(bind=_sensor_engine)()
 
 
 @sensor(job_name="etl_asset_job", minimum_interval_seconds=30)
