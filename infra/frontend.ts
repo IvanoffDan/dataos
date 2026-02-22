@@ -2,12 +2,8 @@ import * as gcp from "@pulumi/gcp";
 import * as pulumi from "@pulumi/pulumi";
 import { repoUrl } from "./registry";
 import { appServiceAccount } from "./iam";
-import { backendUrl } from "./backend";
-
 const gcpConfig = new pulumi.Config("gcp");
 const region = gcpConfig.require("region");
-const config = new pulumi.Config("izakaya");
-const domain = config.require("domain");
 
 export const frontendService = new gcp.cloudrunv2.Service("izakaya-frontend", {
   name: "izakaya-frontend",
@@ -19,12 +15,6 @@ export const frontendService = new gcp.cloudrunv2.Service("izakaya-frontend", {
       {
         image: pulumi.interpolate`${repoUrl}/frontend:latest`,
         ports: { containerPort: 3000 },
-        envs: [
-          {
-            name: "BACKEND_INTERNAL_URL",
-            value: backendUrl,
-          },
-        ],
         resources: {
           limits: { memory: "512Mi", cpu: "1" },
         },
@@ -43,18 +33,6 @@ new gcp.cloudrunv2.ServiceIamMember("frontend-public", {
   location: region,
   role: "roles/run.invoker",
   member: "allUsers",
-});
-
-// Custom domain mapping
-export const domainMapping = new gcp.cloudrun.DomainMapping("izakaya-domain", {
-  name: domain,
-  location: region,
-  metadata: {
-    namespace: gcp.config.project!,
-  },
-  spec: {
-    routeName: frontendService.name,
-  },
 });
 
 export const frontendUrl = frontendService.uri;

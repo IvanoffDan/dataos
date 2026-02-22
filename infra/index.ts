@@ -6,6 +6,7 @@ import { appServiceAccount, githubServiceAccount, dagsterServiceAccount } from "
 import { backendUrl } from "./backend";
 import { frontendUrl } from "./frontend";
 import { workloadIdentityProviderResourceName } from "./github-oidc";
+import { lbIp } from "./loadbalancer";
 
 // Wire up the DATABASE_URL secret with the actual Cloud SQL connection string
 setDatabaseUrlVersion(databaseUrl);
@@ -22,4 +23,5 @@ export const outputs = {
   dagsterServiceAccountEmail: dagsterServiceAccount.email,
   workloadIdentityProvider: workloadIdentityProviderResourceName,
   publicDatabaseUrl,
+  lbIp: lbIp.address,
 };
