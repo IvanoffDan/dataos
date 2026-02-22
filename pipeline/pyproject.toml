@@ -15,11 +15,11 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/izakaya_pipeline"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.dagster]
 module_name = "izakaya_pipeline.definitions"
