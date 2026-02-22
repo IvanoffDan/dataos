@@ -3,5 +3,3 @@ locations:
     code_source:
       package_name: izakaya_pipeline
     working_directory: .
-    build:
-      python_version: "3.12"
