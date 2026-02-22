@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from izakaya_api.config import settings
 from izakaya_api.routers import auth, connectors, dashboard, data_sources, datasets, explore, labels, pipeline
 
-app = FastAPI(title="DataOS API")
+app = FastAPI(title="DataOS API", redirect_slashes=False)
 
 app.add_middleware(
     CORSMiddleware,
