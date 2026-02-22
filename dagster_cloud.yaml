@@ -1,6 +1,6 @@
 locations:
   - location_name: izakaya-pipeline
     code_source:
-      package_name: izakaya_pipeline
+      module_name: izakaya_pipeline.definitions
     build:
       directory: pipeline
