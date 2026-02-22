@@ -22,3 +22,16 @@ class MappingResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AutoMapSuggestion(BaseModel):
+    target_column: str
+    source_column: str | None = None
+    static_value: str | None = None
+    confidence: float
+    reasoning: str
+
+
+class AutoMapResponse(BaseModel):
+    suggestions: list[AutoMapSuggestion]
+    skipped_count: int

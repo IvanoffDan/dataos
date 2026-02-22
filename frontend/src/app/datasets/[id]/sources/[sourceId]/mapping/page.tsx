@@ -30,6 +30,11 @@ interface ExistingMapping {
   static_value: string | null;
 }
 
+interface AiSuggestion {
+  confidence: number;
+  reasoning: string;
+}
+
 type MappingEntry =
   | { type: "column"; value: string }
   | { type: "static"; value: string };
@@ -47,6 +52,11 @@ function MappingEditor() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // AI auto-map state
+  const [autoMapping, setAutoMapping] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
+  const [autoMapError, setAutoMapError] = useState("");
 
   useEffect(() => {
     // Load dataset to get type
@@ -91,6 +101,13 @@ function MappingEditor() {
       }
       return next;
     });
+    // Manual edit clears AI badge for this column
+    setAiSuggestions((prev) => {
+      if (!prev[targetCol]) return prev;
+      const next = { ...prev };
+      delete next[targetCol];
+      return next;
+    });
     setSaved(false);
   };
 
@@ -105,6 +122,65 @@ function MappingEditor() {
       }
       return next;
     });
+    // Manual edit clears AI badge
+    setAiSuggestions((prev) => {
+      if (!prev[targetCol]) return prev;
+      const next = { ...prev };
+      delete next[targetCol];
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const handleAutoMap = async () => {
+    setAutoMapping(true);
+    setAutoMapError("");
+    try {
+      const res = await api(`/api/data-sources/${sourceId}/auto-map`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.detail || "Auto-map failed");
+      }
+      const data = await res.json();
+      const newSuggestions: Record<string, AiSuggestion> = {};
+      const newMappings: Record<string, MappingEntry> = {};
+
+      for (const s of data.suggestions) {
+        // Only apply to unmapped columns
+        const existing = mappings[s.target_column];
+        if (existing && existing.value !== "") continue;
+
+        if (s.source_column) {
+          newMappings[s.target_column] = { type: "column", value: s.source_column };
+          newSuggestions[s.target_column] = { confidence: s.confidence, reasoning: s.reasoning };
+        } else if (s.static_value) {
+          newMappings[s.target_column] = { type: "static", value: s.static_value };
+          newSuggestions[s.target_column] = { confidence: s.confidence, reasoning: s.reasoning };
+        }
+      }
+
+      setMappings((prev) => ({ ...prev, ...newMappings }));
+      setAiSuggestions((prev) => ({ ...prev, ...newSuggestions }));
+      setSaved(false);
+    } catch (err) {
+      setAutoMapError(err instanceof Error ? err.message : "Auto-map failed");
+    } finally {
+      setAutoMapping(false);
+    }
+  };
+
+  const handleClearAiSuggestions = () => {
+    const aiTargets = Object.keys(aiSuggestions);
+    setMappings((prev) => {
+      const next = { ...prev };
+      for (const col of aiTargets) {
+        delete next[col];
+      }
+      return next;
+    });
+    setAiSuggestions({});
     setSaved(false);
   };
 
@@ -125,7 +201,7 @@ function MappingEditor() {
         body: JSON.stringify({ mappings: mappingItems }),
       });
       if (!res.ok) throw new Error((await res.json()).detail);
-      setSaved(true);
+      router.push(`/datasets/${datasetId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -136,6 +212,8 @@ function MappingEditor() {
   const requiredUnmapped = targetColumns.filter(
     (c) => c.required && (!mappings[c.name] || mappings[c.name].value === "")
   );
+
+  const hasAiSuggestions = Object.keys(aiSuggestions).length > 0;
 
   return (
     <div>
@@ -148,15 +226,32 @@ function MappingEditor() {
         </Link>
       </div>
 
-      <h1 className="text-2xl font-bold text-[var(--primary)] mb-2">
-        Column Mapping
-      </h1>
+      <div className="flex items-center justify-between mb-2">
+        <h1 className="text-2xl font-bold text-[var(--primary)]">
+          Column Mapping
+        </h1>
+        <div className="flex items-center gap-2">
+          {hasAiSuggestions && (
+            <Button variant="outline" onClick={handleClearAiSuggestions}>
+              Clear AI suggestions
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={handleAutoMap}
+            disabled={autoMapping}
+          >
+            {autoMapping ? "Auto-mapping..." : "Auto-map with AI"}
+          </Button>
+        </div>
+      </div>
       <p className="text-[var(--muted-foreground)] text-sm mb-6">
         Map source columns to the target {datasetType} schema. Required columns
         must be mapped. Use &ldquo;Static Value&rdquo; for columns that are constant across all rows.
       </p>
 
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+      {autoMapError && <p className="text-red-600 text-sm mb-4">{autoMapError}</p>}
       {saved && (
         <p className="text-green-600 text-sm mb-4">Mappings saved.</p>
       )}
@@ -171,14 +266,22 @@ function MappingEditor() {
               const entry = mappings[col.name];
               const isMapped = !!entry && entry.value !== "";
               const mode = entry?.type || "column";
+              const aiSuggestion = aiSuggestions[col.name];
+
+              let rowBorder = "border-[var(--border)]";
+              let rowBg = "";
+              if (aiSuggestion) {
+                rowBorder = "border-blue-300";
+                rowBg = "bg-blue-50";
+              } else if (col.required && !isMapped) {
+                rowBorder = "border-yellow-300";
+                rowBg = "bg-yellow-50";
+              }
+
               return (
                 <div
                   key={col.name}
-                  className={`flex items-center gap-4 p-3 rounded-lg border ${
-                    col.required && !isMapped
-                      ? "border-yellow-300 bg-yellow-50"
-                      : "border-[var(--border)]"
-                  }`}
+                  className={`flex items-center gap-4 p-3 rounded-lg border ${rowBorder} ${rowBg}`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -198,6 +301,22 @@ function MappingEditor() {
                         >
                           required
                         </Badge>
+                      )}
+                      {aiSuggestion && (
+                        <span title={aiSuggestion.reasoning}>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] px-1.5 py-0 cursor-help ${
+                              aiSuggestion.confidence >= 0.9
+                                ? "border-green-500 text-green-700 bg-green-50"
+                                : aiSuggestion.confidence >= 0.7
+                                  ? "border-yellow-500 text-yellow-700 bg-yellow-50"
+                                  : "border-red-500 text-red-700 bg-red-50"
+                            }`}
+                          >
+                            AI {Math.round(aiSuggestion.confidence * 100)}%
+                          </Badge>
+                        </span>
                       )}
                     </div>
                     <p className="text-xs text-[var(--muted-foreground)] mt-0.5">

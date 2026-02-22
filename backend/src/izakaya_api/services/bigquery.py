@@ -363,6 +363,43 @@ def get_table_data(
     return {"rows": rows, "total_count": total_count, "columns": columns}
 
 
+def get_sample_values(
+    schema_name: str,
+    table_name: str,
+    column_names: list[str],
+    limit: int = 5,
+) -> dict[str, list[str]]:
+    """Fetch top distinct values per source column via a single UNION ALL query.
+
+    Returns {column_name: [value1, value2, ...]} or {} if table unavailable.
+    """
+    if not column_names:
+        return {}
+    for col in column_names:
+        _validate_column_name(col)
+
+    client = get_bq_client()
+    table_ref = f"`{settings.bq_project_id}.{schema_name}.{table_name}`"
+    parts = []
+    for col in column_names:
+        parts.append(
+            f"SELECT '{col}' AS col, CAST(`{col}` AS STRING) AS val "
+            f"FROM (SELECT DISTINCT `{col}` FROM {table_ref} "
+            f"WHERE `{col}` IS NOT NULL LIMIT {int(limit)})"
+        )
+    query = " UNION ALL ".join(parts)
+
+    try:
+        rows = list(client.query(query).result())
+    except (NotFound, Forbidden, BadRequest):
+        return {}
+
+    result: dict[str, list[str]] = {}
+    for row in rows:
+        result.setdefault(row["col"], []).append(row["val"])
+    return result
+
+
 def get_source_table_preview(
     schema_name: str,
     table_name: str,
