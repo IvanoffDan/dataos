@@ -6,7 +6,6 @@ requires-python = ">=3.12"
 dependencies = [
     "dagster>=1.9",
     "dagster-cloud",
-    "dagster-webserver>=1.9",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",
     "google-cloud-bigquery>=3.25",
@@ -17,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "dagster-webserver>=1.9",
     "ruff>=0.8",
 ]
 
