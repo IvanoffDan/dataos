@@ -11,7 +11,7 @@ down:
 install:
 	cd backend && uv sync
 	cd frontend && pnpm install
-	cd pipeline && uv sync --extra dev
+	cd pipeline && uv sync && uv pip install dagster-webserver ruff
 
 migrate:
 	cd backend && uv run alembic upgrade head
