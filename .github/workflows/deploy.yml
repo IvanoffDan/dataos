@@ -9,7 +9,7 @@ env:
   GCP_REGION: us-central1
   AR_REPO: us-central1-docker.pkg.dev/izakaya-488118/izakaya
   # Set via `pulumi stack output` after first deploy
-  WORKLOAD_IDENTITY_PROVIDER: projects/izakaya-488118/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  WORKLOAD_IDENTITY_PROVIDER: projects/303226650515/locations/global/workloadIdentityPools/github-pool/providers/github-provider
   SERVICE_ACCOUNT: izakaya-github@izakaya-488118.iam.gserviceaccount.com
 
 permissions:
