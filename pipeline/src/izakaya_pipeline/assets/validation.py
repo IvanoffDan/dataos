@@ -1,16 +1,28 @@
-import os
 from datetime import datetime
 
-import httpx
 import pandas as pd
+
+from izakaya_pipeline.dataset_types import get_dataset_type
 
 
 def get_column_defs(dataset_type: str) -> list[dict]:
-    """Fetch column definitions from the backend API."""
-    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
-    resp = httpx.get(f"{backend_url}/datasets/types/{dataset_type}/columns")
-    resp.raise_for_status()
-    return resp.json()
+    """Get column definitions from the local dataset type registry."""
+    dt = get_dataset_type(dataset_type)
+    if not dt:
+        raise ValueError(f"Unknown dataset type: {dataset_type}")
+    return [
+        {
+            "name": c.name,
+            "description": c.description,
+            "data_type": c.data_type.value,
+            "required": c.required,
+            "max_length": c.max_length,
+            "min_value": c.min_value,
+            "format": c.format,
+            "notes": c.notes,
+        }
+        for c in dt.columns
+    ]
 
 
 def validate_row(
