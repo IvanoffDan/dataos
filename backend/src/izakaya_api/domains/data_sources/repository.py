@@ -47,6 +47,20 @@ class MappingRepository:
             .all()
         )
 
+    def get_by_target(self, data_source_id: int, target_column: str) -> Mapping | None:
+        return (
+            self.db.query(Mapping)
+            .filter(Mapping.data_source_id == data_source_id, Mapping.target_column == target_column)
+            .first()
+        )
+
+    def has_mappings(self, data_source_id: int) -> bool:
+        return (
+            self.db.query(Mapping)
+            .filter(Mapping.data_source_id == data_source_id)
+            .first()
+        ) is not None
+
     def delete_by_data_source(self, data_source_id: int) -> None:
         self.db.query(Mapping).filter(Mapping.data_source_id == data_source_id).delete()
 

@@ -1,5 +1,5 @@
 import { apiFetch, api } from "@/lib/api";
-import type { DataSource, DataSourceSummary, DatasetType, ColumnDef, SourceColumn, ExistingMapping } from "@/types";
+import type { DataSource, DataSourceSummary, DatasetType, ColumnDef, SourceColumn, ExistingMapping, ReviewContextResponse } from "@/types";
 
 export const fetchDataSources = (): Promise<DataSourceSummary[]> =>
   apiFetch("/api/data-sources");
@@ -53,6 +53,9 @@ export const saveMappings = (
 export const approveDataSource = (dataSourceId: number): Promise<DataSource> =>
   apiFetch(`/api/data-sources/${dataSourceId}/approve`, { method: "POST" });
 
+export const retryDataSource = (dataSourceId: number): Promise<DataSource> =>
+  apiFetch(`/api/data-sources/${dataSourceId}/retry`, { method: "POST" });
+
 export const autoMap = (dataSourceId: number): Promise<{
   suggestions: {
     target_column: string;
@@ -63,3 +66,31 @@ export const autoMap = (dataSourceId: number): Promise<{
   }[];
 }> =>
   apiFetch(`/api/data-sources/${dataSourceId}/auto-map`, { method: "POST" });
+
+export const fetchReviewContext = (id: number): Promise<ReviewContextResponse> =>
+  apiFetch(`/api/data-sources/${id}/review-context`);
+
+export const patchMapping = (
+  dsId: number,
+  targetColumn: string,
+  body: { source_column?: string | null; static_value?: string | null }
+): Promise<void> =>
+  apiFetch(`/api/data-sources/${dsId}/mappings/${encodeURIComponent(targetColumn)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const reprocessDataSource = (dataSourceId: number): Promise<DataSource> =>
+  apiFetch(`/api/data-sources/${dataSourceId}/reprocess`, { method: "POST" });
+
+export const acceptMappings = (
+  dataSourceId: number,
+  reprocess: boolean = false
+): Promise<DataSource> =>
+  apiFetch(`/api/data-sources/${dataSourceId}/accept-mappings`, {
+    method: "POST",
+    body: JSON.stringify({ reprocess }),
+  });
+
+export const resetMappingsAccepted = (dataSourceId: number): Promise<DataSource> =>
+  apiFetch(`/api/data-sources/${dataSourceId}/reset-mappings`, { method: "POST" });

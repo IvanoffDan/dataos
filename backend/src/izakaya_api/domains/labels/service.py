@@ -49,6 +49,11 @@ class LabelService:
         self.repo = repo
         self.db = db
 
+    def _has_active_sources(self, dataset_type: str) -> bool:
+        return self.db.query(DataSource.id).filter(
+            DataSource.dataset_type == dataset_type
+        ).first() is not None
+
     def _create_pending_runs_for_type(self, dataset_type: str) -> None:
         sources = (
             self.db.query(DataSource)
@@ -79,12 +84,18 @@ class LabelService:
 
     def get_summary(self) -> list[DatasetLabelSummary]:
         all_types = list_dataset_types()
+        active_types = {
+            row[0] for row in
+            self.db.query(DataSource.dataset_type).distinct().all()
+        }
         rule_counts = self.repo.count_by_type()
         col_counts = self.repo.column_count_by_type()
 
         result = []
         for dt in all_types:
             type_id = dt.id.value
+            if type_id not in active_types:
+                continue
             string_cols = _get_string_columns(type_id)
             col_names = [c["name"] for c in string_cols]
 
@@ -112,6 +123,8 @@ class LabelService:
         dt = get_dataset_type(dataset_type)
         if not dt:
             raise NotFoundError("Dataset type not found")
+        if not self._has_active_sources(dataset_type):
+            raise NotFoundError("No active data sources for this dataset type")
 
         string_cols = _get_string_columns(dataset_type)
         if not string_cols:
@@ -167,6 +180,8 @@ class LabelService:
         dt = get_dataset_type(dataset_type)
         if not dt:
             raise NotFoundError("Dataset type not found")
+        if not self._has_active_sources(dataset_type):
+            raise NotFoundError("No active data sources for this dataset type")
 
         string_cols = _get_string_columns(dataset_type)
         col_meta = next((c for c in string_cols if c["name"] == column_name), None)

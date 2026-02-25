@@ -19,7 +19,8 @@ from izakaya_pipeline.assets import (
 )
 from izakaya_pipeline.resources import BigQueryResource, DatabaseResource
 from izakaya_pipeline.sensors import (
-    automation_sensor,
+    auto_label_sensor,
+    auto_map_sensor,
     config_change_sensor,
     fivetran_sync_sensor,
     pending_run_sensor,
@@ -55,7 +56,8 @@ defs = Definitions(
     assets=[mapped_dataset, labelled_dataset, datamart, dbt_staging, auto_map_asset, auto_label_asset],
     jobs=[etl_asset_job, transform_job, auto_map_job, auto_label_job],
     sensors=[
-        automation_sensor,
+        auto_map_sensor,
+        auto_label_sensor,
         pending_run_sensor,
         fivetran_sync_sensor,
         config_change_sensor,

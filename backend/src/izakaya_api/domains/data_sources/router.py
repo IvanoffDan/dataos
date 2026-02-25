@@ -11,16 +11,21 @@ from izakaya_api.domains.data_sources.repository import (
     PipelineRunRepository,
 )
 from izakaya_api.domains.data_sources.schemas import (
+    AcceptMappingsRequest,
     AutoMapResponse,
     DataSourceCreate,
     DataSourceResponse,
     DataSourceUpdate,
     MappingBulkSave,
+    MappingPatch,
     MappingResponse,
     PipelineRunResponse,
+    ReviewContextResponse,
     ValidationErrorResponse,
 )
 from izakaya_api.domains.data_sources.service import DataSourceService
+from izakaya_api.domains.labels.repository import LabelRuleRepository
+from izakaya_api.domains.labels.service import LabelService
 
 router = APIRouter(tags=["data-sources"])
 
@@ -103,6 +108,47 @@ def approve_data_source(
     return result
 
 
+# --- Accept Mappings ---
+
+@router.post("/data-sources/{data_source_id}/accept-mappings", response_model=DataSourceResponse)
+def accept_mappings(
+    data_source_id: int,
+    body: AcceptMappingsRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    svc: DataSourceService = Depends(_get_service),
+):
+    result = svc.accept_mappings(data_source_id, reprocess=body.reprocess)
+    db.commit()
+    return result
+
+
+@router.post("/data-sources/{data_source_id}/reset-mappings", response_model=DataSourceResponse)
+def reset_mappings_accepted(
+    data_source_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    svc: DataSourceService = Depends(_get_service),
+):
+    result = svc.reset_mappings_accepted(data_source_id)
+    db.commit()
+    return result
+
+
+# --- Retry ---
+
+@router.post("/data-sources/{data_source_id}/retry", response_model=DataSourceResponse)
+def retry_data_source(
+    data_source_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    svc: DataSourceService = Depends(_get_service),
+):
+    result = svc.retry(data_source_id)
+    db.commit()
+    return result
+
+
 # --- Pipeline runs ---
 
 @router.post("/data-sources/{data_source_id}/run", response_model=PipelineRunResponse, status_code=201)
@@ -173,6 +219,53 @@ def get_mappings(
     svc: DataSourceService = Depends(_get_service),
 ):
     return svc.get_mappings(data_source_id)
+
+
+# --- Review Context ---
+
+@router.get("/data-sources/{data_source_id}/review-context", response_model=ReviewContextResponse)
+def get_review_context(
+    data_source_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    svc: DataSourceService = Depends(_get_service),
+):
+    label_svc = LabelService(repo=LabelRuleRepository(db), db=db)
+    return svc.get_review_context(data_source_id, label_service=label_svc)
+
+
+# --- Patch Mapping ---
+
+@router.patch("/data-sources/{data_source_id}/mappings/{target_column}", response_model=MappingResponse)
+def patch_mapping(
+    data_source_id: int,
+    target_column: str,
+    body: MappingPatch,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    svc: DataSourceService = Depends(_get_service),
+):
+    label_repo = LabelRuleRepository(db)
+    mapping = svc.patch_mapping(
+        data_source_id, target_column, body.model_dump(exclude_unset=True), label_repo=label_repo
+    )
+    db.commit()
+    db.refresh(mapping)
+    return mapping
+
+
+# --- Reprocess (re-run pipeline + auto-label) ---
+
+@router.post("/data-sources/{data_source_id}/reprocess", response_model=DataSourceResponse)
+def reprocess_data_source(
+    data_source_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    svc: DataSourceService = Depends(_get_service),
+):
+    result = svc.reprocess(data_source_id)
+    db.commit()
+    return result
 
 
 # --- Auto-map ---

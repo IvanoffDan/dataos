@@ -79,6 +79,9 @@ def datamart(
             history_table = f"{bq_project}.{bq_dataset}.{dataset_type}_history"
             history_config = bigquery.LoadJobConfig(
                 write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                schema_update_options=[
+                    bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION,
+                ],
                 time_partitioning=bigquery.TimePartitioning(
                     type_=bigquery.TimePartitioningType.DAY,
                     field="_snapshot_at",

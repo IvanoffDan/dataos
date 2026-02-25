@@ -93,6 +93,25 @@ export const sourceStatusVariant = (
   }
 };
 
+export const formatSourceStatus = (status: string): string => {
+  switch (status) {
+    case "auto_mapping":
+      return "Auto-Mapping";
+    case "auto_labelling":
+      return "Auto-Labelling";
+    case "pending_mapping":
+      return "Pending Mapping";
+    case "pending_review":
+      return "Pending Review";
+    case "processing_failed":
+      return "Failed";
+    case "mapped":
+      return "Mapped";
+    default:
+      return status;
+  }
+};
+
 export const runStatusVariant = (
   status: string
 ): "success" | "warning" | "error" | "secondary" => {

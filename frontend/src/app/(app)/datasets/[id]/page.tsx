@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useDataSourcePolling, useUpdateDataSource, useDeleteDataSource } from "@/hooks/use-data-sources";
 import { useKpiSummary, useMetrics, useTimeSeries } from "@/hooks/use-explore";
 import { usePipelineRuns, useTriggerRun, useRunErrors } from "@/hooks/use-pipeline";
-import { sourceStatusVariant, runStatusVariant, formatMetricValue } from "@/lib/format";
+import { sourceStatusVariant, formatSourceStatus, runStatusVariant, formatMetricValue } from "@/lib/format";
 import { KpiCard } from "@/components/charts/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,15 +44,22 @@ import {
   CartesianGrid,
 } from "recharts";
 
+const REVIEW_STATUSES = new Set(["pending_review", "auto_mapping", "auto_labelling", "processing_failed"]);
+
 const DataSourceDetail = () => {
   const params = useParams();
   const router = useRouter();
   const id = Number(params.id);
 
   const { data: dataSource, isLoading, error } = useDataSourcePolling(id);
-  const isProcessing =
-    dataSource?.status === "auto_mapping" ||
-    dataSource?.status === "auto_labelling";
+
+  // Auto-redirect to review page for review-related statuses
+  useEffect(() => {
+    if (dataSource && REVIEW_STATUSES.has(dataSource.status)) {
+      router.replace(`/datasets/${id}/review`);
+    }
+  }, [dataSource?.status, id, router]);
+
   const { data: kpi, isLoading: kpiLoading } = useKpiSummary(id);
   const { data: metrics = [] } = useMetrics(id);
   const { data: runs = [] } = usePipelineRuns(id);
@@ -79,6 +86,11 @@ const DataSourceDetail = () => {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
   }
 
+  // If we're about to redirect, show loading
+  if (REVIEW_STATUSES.has(dataSource.status)) {
+    return <p className="text-[var(--muted-foreground)]">Redirecting...</p>;
+  }
+
   return (
     <div>
       <PageHeader
@@ -89,7 +101,7 @@ const DataSourceDetail = () => {
           <>
             <Badge variant="secondary">{dataSource.dataset_type}</Badge>
             <Badge variant={sourceStatusVariant(dataSource.status)}>
-              {dataSource.status}
+              {formatSourceStatus(dataSource.status)}
             </Badge>
             <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
               Edit
@@ -98,9 +110,6 @@ const DataSourceDetail = () => {
         }
         actions={
           <>
-            <Button asChild variant="outline">
-              <Link href={`/datasets/${id}/mapping`}>Map Columns</Link>
-            </Button>
             <Button
               variant="outline"
               onClick={() => triggerRun.mutate()}
@@ -135,38 +144,25 @@ const DataSourceDetail = () => {
         )}
       </p>
 
-      {/* Processing Banners */}
-      {isProcessing && (
-        <div className="rounded-md border border-blue-200 bg-blue-50 p-4 mb-6 flex items-center gap-3">
-          <div className="h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-blue-800">
-            {dataSource.status === "auto_mapping"
-              ? "AI is mapping source columns to the target schema..."
-              : "AI is standardizing string values..."}
-          </p>
-        </div>
-      )}
-      {dataSource.status === "pending_review" && (
-        <div className="rounded-md border border-yellow-200 bg-yellow-50 p-4 mb-6 flex items-center justify-between">
-          <p className="text-sm text-yellow-800">
-            Automated mapping and labelling is complete. Please review the results.
-          </p>
-          <Button asChild size="sm">
-            <Link href={`/datasets/${id}/review`}>Review &amp; Approve</Link>
-          </Button>
-        </div>
-      )}
-      {dataSource.status === "processing_failed" && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 mb-6">
-          <p className="text-sm text-red-800">
-            Automated processing failed. You can{" "}
-            <Link href={`/datasets/${id}/mapping`} className="underline font-medium">
-              map columns manually
-            </Link>{" "}
-            instead.
-          </p>
-        </div>
-      )}
+      {/* Settings Card */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-lg">Settings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/datasets/${id}/review`}>Review & Approve</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/datasets/${id}/mapping`}>Column Mappings</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/labels/${dataSource.dataset_type}`}>Label Rules</Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* KPI Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

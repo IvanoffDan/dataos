@@ -5,14 +5,14 @@ from sqlalchemy.orm import Session
 
 def get_ds_needing_auto_map(db: Session) -> list[int]:
     """Data sources in auto_mapping status with no pending/running pipeline runs
-    and whose connector has completed at least one sync (sync_state='synced')."""
+    and whose connector has completed at least one sync."""
     rows = db.execute(
         text("""
             SELECT ds.id
             FROM data_sources ds
             JOIN connectors c ON c.id = ds.connector_id
             WHERE ds.status = 'auto_mapping'
-              AND c.sync_state = 'synced'
+              AND c.sync_state IN ('scheduled', 'rescheduled')
               AND NOT EXISTS (
                 SELECT 1 FROM pipeline_runs pr
                 WHERE pr.data_source_id = ds.id
@@ -88,14 +88,16 @@ def save_mappings(db: Session, ds_id: int, mappings: list[dict]) -> None:
     for m in mappings:
         db.execute(
             text("""
-                INSERT INTO mappings (data_source_id, source_column, target_column, static_value)
-                VALUES (:ds_id, :source_column, :target_column, :static_value)
+                INSERT INTO mappings (data_source_id, source_column, target_column, static_value, confidence, reasoning, ai_suggested)
+                VALUES (:ds_id, :source_column, :target_column, :static_value, :confidence, :reasoning, true)
             """),
             {
                 "ds_id": ds_id,
                 "source_column": m.get("source_column"),
                 "target_column": m["target_column"],
                 "static_value": m.get("static_value"),
+                "confidence": m.get("confidence"),
+                "reasoning": m.get("reasoning"),
             },
         )
     db.commit()

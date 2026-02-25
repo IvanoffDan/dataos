@@ -10,7 +10,16 @@ from izakaya_api.domains.data_sources.repository import (
     MappingRepository,
     PipelineRunRepository,
 )
-from izakaya_api.domains.data_sources.schemas import AutoMapResponse, AutoMapSuggestion, DataSourceResponse
+from izakaya_api.domains.data_sources.schemas import (
+    AutoMapResponse,
+    AutoMapSuggestion,
+    DataSourceResponse,
+    ReviewContextResponse,
+    ReviewLabelColumn,
+    ReviewLabelRule,
+    ReviewMapping,
+    ReviewSummary,
+)
 from izakaya_api.infra.ai.client import chat_json
 from izakaya_api.infra.ai.prompts import AUTOMAP_SYSTEM
 from izakaya_api.infra.bigquery.table_service import get_sample_values, get_table_columns
@@ -49,6 +58,7 @@ class DataSourceService:
             bq_table=ds.bq_table,
             raw_table=ds.raw_table,
             status=ds.status,
+            mappings_accepted=ds.mappings_accepted,
             created_at=ds.created_at,
             updated_at=ds.updated_at,
             connector_name=connector.name if connector else "",
@@ -135,6 +145,9 @@ class DataSourceService:
                 source_column=item["source_column"] or None,
                 target_column=item["target_column"],
                 static_value=item.get("static_value"),
+                confidence=item.get("confidence"),
+                reasoning=item.get("reasoning"),
+                ai_suggested=item.get("ai_suggested"),
             )
             self.mapping_repo.create(m)
             new_mappings.append(m)
@@ -151,13 +164,240 @@ class DataSourceService:
                 f"Cannot approve data source in '{ds.status}' status (expected 'pending_review')"
             )
         ds.status = "mapped"
+        ds.mappings_accepted = False  # reset for next cycle
         if not self.run_repo.has_pending(data_source_id):
             self.run_repo.create(PipelineRun(data_source_id=data_source_id, status="pending"))
+        return self._build_response(ds)
+
+    def accept_mappings(self, data_source_id: int, reprocess: bool = False) -> DataSourceResponse:
+        """Accept mappings and optionally trigger re-processing for labels."""
+        ds = self._get_ds(data_source_id)
+        if ds.status != "pending_review":
+            raise DomainValidationError(
+                f"Cannot accept mappings in '{ds.status}' status (expected 'pending_review')"
+            )
+        ds.mappings_accepted = True
+        if reprocess:
+            ds.status = "auto_labelling"
+            if not self.run_repo.has_pending(data_source_id):
+                self.run_repo.create(PipelineRun(data_source_id=data_source_id, status="pending"))
+        return self._build_response(ds)
+
+    def reset_mappings_accepted(self, data_source_id: int) -> DataSourceResponse:
+        """Go back to mapping review step."""
+        ds = self._get_ds(data_source_id)
+        ds.mappings_accepted = False
+        return self._build_response(ds)
+
+    def retry(self, data_source_id: int) -> DataSourceResponse:
+        ds = self._get_ds(data_source_id)
+        if ds.status != "processing_failed":
+            raise DomainValidationError(
+                f"Cannot retry data source in '{ds.status}' status (expected 'processing_failed')"
+            )
+        resume_status = "auto_labelling" if self.mapping_repo.has_mappings(data_source_id) else "auto_mapping"
+        ds.status = resume_status
+        self.run_repo.create(PipelineRun(data_source_id=data_source_id, status="pending"))
         return self._build_response(ds)
 
     def get_mappings(self, data_source_id: int) -> list[Mapping]:
         self._get_ds(data_source_id)
         return self.mapping_repo.list_by_data_source(data_source_id)
+
+    def patch_mapping(
+        self, data_source_id: int, target_column: str, data: dict, label_repo=None
+    ) -> Mapping:
+        from izakaya_api.dataset_types.base import DataType
+
+        ds = self._get_ds(data_source_id)
+        mapping = self.mapping_repo.get_by_target(data_source_id, target_column)
+        if not mapping:
+            mapping = Mapping(
+                data_source_id=data_source_id,
+                target_column=target_column,
+            )
+            self.mapping_repo.create(mapping)
+
+        old_source = mapping.source_column
+        old_static = mapping.static_value
+
+        if "source_column" in data:
+            mapping.source_column = data["source_column"] or None
+            if mapping.source_column:
+                mapping.static_value = None
+            mapping.ai_suggested = False
+            mapping.confidence = None
+            mapping.reasoning = None
+        if "static_value" in data:
+            mapping.static_value = data["static_value"] or None
+            if mapping.static_value:
+                mapping.source_column = None
+            mapping.ai_suggested = False
+            mapping.confidence = None
+            mapping.reasoning = None
+
+        # If the source changed for a string column, clear stale AI labels
+        source_changed = (mapping.source_column != old_source) or (mapping.static_value != old_static)
+        if source_changed and label_repo:
+            dt = get_dataset_type(ds.dataset_type)
+            if dt:
+                col_def = next((c for c in dt.columns if c.name == target_column), None)
+                if col_def and col_def.data_type == DataType.STRING:
+                    label_repo.delete_ai_by_column(ds.dataset_type, target_column)
+
+        return mapping
+
+    def reprocess(self, data_source_id: int) -> DataSourceResponse:
+        """Re-run pipeline + auto-label after mapping edits."""
+        ds = self._get_ds(data_source_id)
+        if ds.status not in ("pending_review", "mapped", "processing_failed"):
+            raise DomainValidationError(
+                f"Cannot reprocess data source in '{ds.status}' status"
+            )
+        ds.status = "auto_labelling"
+        ds.mappings_accepted = True
+        if not self.run_repo.has_pending(data_source_id):
+            self.run_repo.create(PipelineRun(data_source_id=data_source_id, status="pending"))
+        return self._build_response(ds)
+
+    def get_review_context(
+        self, data_source_id: int, label_service=None
+    ) -> ReviewContextResponse:
+        from izakaya_api.dataset_types.base import DataType
+
+        ds = self._get_ds(data_source_id)
+        ds_response = self._build_response(ds)
+        dt = get_dataset_type(ds.dataset_type)
+        if not dt:
+            raise DomainValidationError(f"Unknown dataset type: {ds.dataset_type}")
+
+        connector = self.connector_repo.get(ds.connector_id)
+
+        # Build mapping lookup
+        existing_mappings = self.mapping_repo.list_by_data_source(data_source_id)
+        mapping_by_target = {m.target_column: m for m in existing_mappings}
+
+        # Get sample values for mapped source columns
+        samples: dict[str, list[str]] = {}
+        if connector and connector.schema_name:
+            mapped_source_cols = [
+                m.source_column for m in existing_mappings if m.source_column
+            ]
+            if mapped_source_cols:
+                try:
+                    samples = get_sample_values(
+                        connector.schema_name, ds.bq_table, mapped_source_cols, limit=5
+                    )
+                except Exception:
+                    logger.warning("Failed to get sample values", exc_info=True)
+
+        # Build review mappings
+        review_mappings: list[ReviewMapping] = []
+        for col in dt.columns:
+            m = mapping_by_target.get(col.name)
+            review_mappings.append(
+                ReviewMapping(
+                    target_column=col.name,
+                    target_type=col.data_type.value,
+                    target_description=col.description,
+                    target_required=col.required,
+                    source_column=m.source_column if m else None,
+                    static_value=m.static_value if m else None,
+                    confidence=m.confidence if m else None,
+                    reasoning=m.reasoning if m else None,
+                    ai_suggested=m.ai_suggested if m else None,
+                    sample_values=samples.get(m.source_column, []) if m and m.source_column else [],
+                )
+            )
+
+        # Build label columns data
+        label_columns: list[ReviewLabelColumn] = []
+        string_cols = [
+            c for c in dt.columns
+            if c.data_type == DataType.STRING
+            and c.name in mapping_by_target
+            and (mapping_by_target[c.name].source_column or mapping_by_target[c.name].static_value)
+        ]
+
+        if label_service and string_cols:
+            for col in string_cols:
+                try:
+                    col_values = label_service.get_column_values(ds.dataset_type, col.name)
+                    rules: list[ReviewLabelRule] = []
+                    for v in col_values.values[:50]:
+                        if v.replacement is not None:
+                            rules.append(
+                                ReviewLabelRule(
+                                    id=0,
+                                    match_value=v.value,
+                                    replace_value=v.replacement,
+                                    row_count=v.row_count,
+                                    percentage=v.percentage,
+                                    ai_suggested=v.ai_suggested,
+                                    confidence=v.confidence,
+                                )
+                            )
+
+                    total_rows = col_values.total_rows or 0
+                    covered = col_values.covered_row_count
+                    row_cov = (covered / total_rows * 100) if total_rows > 0 else 0.0
+                    distinct = col_values.distinct_count
+                    rule_count = col_values.rule_count
+                    cov_pct = (rule_count / distinct * 100) if distinct > 0 else 0.0
+
+                    label_columns.append(
+                        ReviewLabelColumn(
+                            column_name=col.name,
+                            description=col.description,
+                            distinct_count=distinct,
+                            rule_count=rule_count,
+                            ai_rule_count=sum(1 for r in rules if r.ai_suggested),
+                            coverage_pct=round(cov_pct, 1),
+                            row_coverage_pct=round(row_cov, 1),
+                            rules=rules,
+                        )
+                    )
+                except Exception:
+                    logger.warning("Failed to get label data for column %s", col.name, exc_info=True)
+
+        # Summary stats
+        mapped_count = sum(1 for rm in review_mappings if rm.source_column or rm.static_value)
+        unmapped_required = sum(
+            1 for rm in review_mappings
+            if rm.target_required and not rm.source_column and not rm.static_value
+        )
+        high_conf = sum(
+            1 for rm in review_mappings
+            if rm.confidence is not None and rm.confidence >= 0.9
+        )
+        needs_review = sum(
+            1 for rm in review_mappings
+            if (rm.confidence is not None and rm.confidence < 0.9)
+            or (rm.target_required and not rm.source_column and not rm.static_value)
+        )
+        total_label_rules = sum(lc.rule_count for lc in label_columns)
+        total_row_cov = (
+            sum(lc.row_coverage_pct for lc in label_columns) / len(label_columns)
+            if label_columns else 0.0
+        )
+
+        summary = ReviewSummary(
+            total_target_columns=len(dt.columns),
+            mapped_count=mapped_count,
+            unmapped_required_count=unmapped_required,
+            high_confidence_count=high_conf,
+            needs_review_count=needs_review,
+            total_label_rules=total_label_rules,
+            label_columns_count=len(label_columns),
+            row_coverage_pct=round(total_row_cov, 1),
+        )
+
+        return ReviewContextResponse(
+            data_source=ds_response,
+            summary=summary,
+            mappings=review_mappings,
+            label_columns=label_columns,
+        )
 
     def auto_map(self, data_source_id: int) -> AutoMapResponse:
         ds = self._get_ds(data_source_id)

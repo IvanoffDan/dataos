@@ -1,5 +1,5 @@
-"""Sensor that detects data sources needing auto-mapping or auto-labelling
-and triggers the appropriate Dagster jobs."""
+"""Sensors that detect data sources needing auto-mapping or auto-labelling
+and trigger the appropriate Dagster jobs."""
 import logging
 import os
 import time
@@ -23,12 +23,11 @@ def _get_db_session():
     return sessionmaker(bind=_sensor_engine)()
 
 
-@sensor(minimum_interval_seconds=30)
-def automation_sensor(context):
-    """Polls for data sources in auto_mapping/auto_labelling states and launches jobs."""
+@sensor(job_name="auto_map_job", minimum_interval_seconds=30)
+def auto_map_sensor(context):
+    """Polls for data sources in auto_mapping state and launches auto_map_job."""
     db = _get_db_session()
     try:
-        # Phase 1: auto_mapping -> trigger auto_map_job
         ds_ids = automation_repo.get_ds_needing_auto_map(db)
         for ds_id in ds_ids:
             logger.info(f"Triggering auto-map for data source {ds_id}")
@@ -38,11 +37,17 @@ def automation_sensor(context):
             )
             yield RunRequest(
                 run_key=f"auto-map-{ds_id}-{int(time.time())}",
-                job_name="auto_map_job",
                 partition_key=str(ds_id),
             )
+    finally:
+        db.close()
 
-        # Phase 2: auto_labelling -> trigger auto_label_job
+
+@sensor(job_name="auto_label_job", minimum_interval_seconds=30)
+def auto_label_sensor(context):
+    """Polls for data sources in auto_labelling state and launches auto_label_job."""
+    db = _get_db_session()
+    try:
         ds_ids = automation_repo.get_ds_needing_auto_label(db)
         for ds_id in ds_ids:
             logger.info(f"Triggering auto-label for data source {ds_id}")
@@ -52,7 +57,6 @@ def automation_sensor(context):
             )
             yield RunRequest(
                 run_key=f"auto-label-{ds_id}-{int(time.time())}",
-                job_name="auto_label_job",
                 partition_key=str(ds_id),
             )
     finally:

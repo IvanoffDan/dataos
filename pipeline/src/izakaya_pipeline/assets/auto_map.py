@@ -94,7 +94,9 @@ def auto_map_asset(
                 target = str(item["target_column"])
                 source = item.get("source_column")
                 static = item.get("static_value")
-            except (KeyError, TypeError):
+                confidence = max(0.0, min(1.0, float(item.get("confidence", 0))))
+                reasoning = str(item.get("reasoning", ""))
+            except (KeyError, TypeError, ValueError):
                 continue
 
             if target not in target_names:
@@ -106,6 +108,8 @@ def auto_map_asset(
                 "target_column": target,
                 "source_column": source if source else None,
                 "static_value": static if static else None,
+                "confidence": confidence,
+                "reasoning": reasoning,
             })
 
         automation_repo.save_mappings(db, ds_id, mappings)

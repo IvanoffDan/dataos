@@ -25,6 +25,7 @@ class DataSourceResponse(BaseModel):
     bq_table: str
     raw_table: str | None = None
     status: str
+    mappings_accepted: bool = False
     created_at: datetime
     updated_at: datetime
     connector_name: str = ""
@@ -37,6 +38,9 @@ class MappingItem(BaseModel):
     source_column: str = ""
     target_column: str
     static_value: str | None = None
+    confidence: float | None = None
+    reasoning: str | None = None
+    ai_suggested: bool | None = None
 
 
 class MappingBulkSave(BaseModel):
@@ -49,6 +53,9 @@ class MappingResponse(BaseModel):
     source_column: str | None
     target_column: str
     static_value: str | None
+    confidence: float | None = None
+    reasoning: str | None = None
+    ai_suggested: bool | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -93,3 +100,67 @@ class ValidationErrorResponse(BaseModel):
     source_value: str | None
 
     model_config = {"from_attributes": True}
+
+
+# --- Review Context ---
+
+
+class MappingPatch(BaseModel):
+    source_column: str | None = None
+    static_value: str | None = None
+
+
+class AcceptMappingsRequest(BaseModel):
+    reprocess: bool = False
+
+
+class ReviewMapping(BaseModel):
+    target_column: str
+    target_type: str
+    target_description: str
+    target_required: bool
+    source_column: str | None = None
+    static_value: str | None = None
+    confidence: float | None = None
+    reasoning: str | None = None
+    ai_suggested: bool | None = None
+    sample_values: list[str] = []
+
+
+class ReviewLabelRule(BaseModel):
+    id: int
+    match_value: str
+    replace_value: str
+    row_count: int
+    percentage: float
+    ai_suggested: bool | None = None
+    confidence: float | None = None
+
+
+class ReviewLabelColumn(BaseModel):
+    column_name: str
+    description: str
+    distinct_count: int
+    rule_count: int
+    ai_rule_count: int
+    coverage_pct: float
+    row_coverage_pct: float
+    rules: list[ReviewLabelRule] = []
+
+
+class ReviewSummary(BaseModel):
+    total_target_columns: int
+    mapped_count: int
+    unmapped_required_count: int
+    high_confidence_count: int
+    needs_review_count: int
+    total_label_rules: int
+    label_columns_count: int
+    row_coverage_pct: float
+
+
+class ReviewContextResponse(BaseModel):
+    data_source: DataSourceResponse
+    summary: ReviewSummary
+    mappings: list[ReviewMapping]
+    label_columns: list[ReviewLabelColumn]

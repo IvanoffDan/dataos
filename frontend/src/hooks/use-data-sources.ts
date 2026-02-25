@@ -9,12 +9,18 @@ import {
   updateDataSource,
   deleteDataSource,
   approveDataSource,
+  retryDataSource,
   fetchDatasetTypes,
   fetchTargetColumns,
   fetchSourceColumns,
   fetchMappings,
   saveMappings,
   autoMap,
+  fetchReviewContext,
+  patchMapping,
+  reprocessDataSource,
+  acceptMappings,
+  resetMappingsAccepted,
 } from "@/lib/api/data-sources";
 
 export const useDataSources = () =>
@@ -121,8 +127,82 @@ export const useApproveDataSource = (id: number) => {
   });
 };
 
+export const useRetryDataSource = (id: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => retryDataSource(id),
+    onSuccess: (data) => {
+      qc.setQueryData(["data-sources", id], data);
+      qc.invalidateQueries({ queryKey: ["data-sources"] });
+      toast.success("Retrying automated processing");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+};
+
 export const useAutoMap = (dataSourceId: number) =>
   useMutation({
     mutationFn: () => autoMap(dataSourceId),
     onError: (err: Error) => toast.error(err.message),
   });
+
+export const useReviewContext = (id: number) =>
+  useQuery({
+    queryKey: ["review-context", id],
+    queryFn: () => fetchReviewContext(id),
+  });
+
+export const usePatchMapping = (dsId: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ targetColumn, body }: { targetColumn: string; body: { source_column?: string | null; static_value?: string | null } }) =>
+      patchMapping(dsId, targetColumn, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["review-context", dsId] });
+      qc.invalidateQueries({ queryKey: ["mappings", dsId] });
+      toast.success("Mapping updated");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+};
+
+export const useAcceptMappings = (id: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reprocess: boolean = false) => acceptMappings(id, reprocess),
+    onSuccess: (data) => {
+      qc.setQueryData(["data-sources", id], data);
+      qc.invalidateQueries({ queryKey: ["review-context", id] });
+      qc.invalidateQueries({ queryKey: ["data-sources"] });
+      toast.success("Mappings accepted");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+};
+
+export const useResetMappingsAccepted = (id: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => resetMappingsAccepted(id),
+    onSuccess: (data) => {
+      qc.setQueryData(["data-sources", id], data);
+      qc.invalidateQueries({ queryKey: ["review-context", id] });
+      qc.invalidateQueries({ queryKey: ["data-sources"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+};
+
+export const useReprocessDataSource = (id: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => reprocessDataSource(id),
+    onSuccess: (data) => {
+      qc.setQueryData(["data-sources", id], data);
+      qc.invalidateQueries({ queryKey: ["review-context", id] });
+      qc.invalidateQueries({ queryKey: ["data-sources"] });
+      toast.success("Re-processing started");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+};

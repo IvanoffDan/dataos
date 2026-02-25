@@ -12,13 +12,14 @@ def get_data_source_type(db: Session, data_source_id: int) -> str | None:
 
 
 def get_mapped_source(db: Session, data_source_id: int) -> tuple | None:
-    """Returns (source_id, bq_table, connector_id, schema_name) or None."""
+    """Returns (source_id, bq_table, connector_id, schema_name) or None.
+    Accepts mapped or auto_labelling status (auto_labelling has mappings saved by auto_map)."""
     row = db.execute(
         text("""
             SELECT ds.id, ds.bq_table, ds.connector_id, c.schema_name
             FROM data_sources ds
             JOIN connectors c ON c.id = ds.connector_id
-            WHERE ds.id = :data_source_id AND ds.status = 'mapped'
+            WHERE ds.id = :data_source_id AND ds.status IN ('mapped', 'auto_labelling')
         """),
         {"data_source_id": data_source_id},
     ).fetchone()
@@ -80,7 +81,7 @@ def get_fivetran_synced_sources(db: Session) -> list[int]:
             SELECT ds.id
             FROM data_sources ds
             JOIN connectors c ON c.id = ds.connector_id
-            WHERE c.sync_state = 'synced'
+            WHERE c.sync_state IN ('scheduled', 'rescheduled')
               AND ds.status = 'mapped'
               AND NOT EXISTS (
                 SELECT 1 FROM pipeline_runs pr
@@ -100,7 +101,7 @@ def get_synced_connectors(db: Session) -> list[tuple[int, str]]:
             SELECT DISTINCT c.id, c.service
             FROM connectors c
             JOIN data_sources ds ON ds.connector_id = c.id
-            WHERE c.sync_state = 'synced'
+            WHERE c.sync_state IN ('scheduled', 'rescheduled')
               AND ds.status IN ('mapped', 'auto_mapping')
               AND NOT EXISTS (
                 SELECT 1 FROM pipeline_runs pr

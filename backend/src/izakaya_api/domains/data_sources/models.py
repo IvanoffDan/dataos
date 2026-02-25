@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from izakaya_api.core.database import Base
@@ -17,6 +17,7 @@ class DataSource(Base):
     bq_table: Mapped[str] = mapped_column(String(500))
     raw_table: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending_mapping")
+    mappings_accepted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -33,6 +34,9 @@ class Mapping(Base):
     source_column: Mapped[str | None] = mapped_column(String(255), nullable=True)
     target_column: Mapped[str] = mapped_column(String(255))
     static_value: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    ai_suggested: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
