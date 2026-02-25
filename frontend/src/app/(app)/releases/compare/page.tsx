@@ -75,7 +75,7 @@ function ComparePage() {
               <span className="font-medium">{data.r1.name}</span>
             </div>
             <p className="text-sm text-[var(--muted-foreground)] mt-1">
-              {data.r1.dataset_count} datasets &middot;{" "}
+              {data.r1.data_source_count} data sources &middot;{" "}
               {data.r1.total_rows.toLocaleString()} rows &middot;{" "}
               {new Date(data.r1.created_at).toLocaleDateString()}
             </p>
@@ -88,7 +88,7 @@ function ComparePage() {
               <span className="font-medium">{data.r2.name}</span>
             </div>
             <p className="text-sm text-[var(--muted-foreground)] mt-1">
-              {data.r2.dataset_count} datasets &middot;{" "}
+              {data.r2.data_source_count} data sources &middot;{" "}
               {data.r2.total_rows.toLocaleString()} rows &middot;{" "}
               {new Date(data.r2.created_at).toLocaleDateString()}
             </p>
@@ -99,13 +99,13 @@ function ComparePage() {
       {/* Diff table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Per-Dataset Comparison</CardTitle>
+          <CardTitle className="text-lg">Per-Data Source Comparison</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Dataset</TableHead>
+                <TableHead>Data Source</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead className="text-center">
                   v{data.r1.version} Version
@@ -129,9 +129,9 @@ function ComparePage() {
                     ? d.r2_rows - d.r1_rows
                     : null;
                 return (
-                  <TableRow key={d.dataset_id}>
+                  <TableRow key={d.data_source_id}>
                     <TableCell className="font-medium">
-                      {d.dataset_name}
+                      {d.data_source_name}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">{d.dataset_type}</Badge>

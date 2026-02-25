@@ -45,18 +45,18 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return res.json();
 }
 
-export async function fetchKpiSummary(datasetId: number): Promise<KpiSummary> {
-  const res = await api(`/api/explore/datasets/${datasetId}/summary`);
+export async function fetchKpiSummary(dataSourceId: number): Promise<KpiSummary> {
+  const res = await api(`/api/explore/data-sources/${dataSourceId}/summary`);
   return jsonOrThrow(res);
 }
 
-export async function fetchMetrics(datasetId: number): Promise<MetricDef[]> {
-  const res = await api(`/api/explore/datasets/${datasetId}/metrics`);
+export async function fetchMetrics(dataSourceId: number): Promise<MetricDef[]> {
+  const res = await api(`/api/explore/data-sources/${dataSourceId}/metrics`);
   return jsonOrThrow(res);
 }
 
 export async function fetchTimeSeries(
-  datasetId: number,
+  dataSourceId: number,
   body: {
     metric_id: string;
     granularity?: string;
@@ -65,7 +65,7 @@ export async function fetchTimeSeries(
     date_to?: string | null;
   }
 ): Promise<TimeSeriesPoint[]> {
-  const res = await api(`/api/explore/datasets/${datasetId}/time-series`, {
+  const res = await api(`/api/explore/data-sources/${dataSourceId}/time-series`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -73,7 +73,7 @@ export async function fetchTimeSeries(
 }
 
 export async function fetchBreakdown(
-  datasetId: number,
+  dataSourceId: number,
   body: {
     metric_id: string;
     group_by: string;
@@ -82,7 +82,7 @@ export async function fetchBreakdown(
     limit?: number;
   }
 ): Promise<BreakdownItem[]> {
-  const res = await api(`/api/explore/datasets/${datasetId}/breakdown`, {
+  const res = await api(`/api/explore/data-sources/${dataSourceId}/breakdown`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -90,7 +90,7 @@ export async function fetchBreakdown(
 }
 
 export async function fetchTableData(
-  datasetId: number,
+  dataSourceId: number,
   params: {
     offset?: number;
     limit?: number;
@@ -103,7 +103,7 @@ export async function fetchTableData(
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.sort_column) query.set("sort_column", params.sort_column);
   if (params.sort_dir) query.set("sort_dir", params.sort_dir);
-  const res = await api(`/api/explore/datasets/${datasetId}/data?${query}`);
+  const res = await api(`/api/explore/data-sources/${dataSourceId}/data?${query}`);
   return jsonOrThrow(res);
 }
 

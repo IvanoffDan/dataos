@@ -10,7 +10,9 @@ class DataSource(Base):
     __tablename__ = "data_sources"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(String(1000), default="", server_default="")
+    dataset_type: Mapped[str] = mapped_column(String(50))
     connector_id: Mapped[int] = mapped_column(ForeignKey("connectors.id", ondelete="CASCADE"))
     bq_table: Mapped[str] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(50), default="pending_mapping")

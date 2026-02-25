@@ -14,9 +14,8 @@ import {
 } from "@/components/ui/table";
 
 interface DatasetLabelSummary {
-  dataset_id: number;
-  dataset_name: string;
   dataset_type: string;
+  dataset_type_name: string;
   total_rules: number;
   columns_with_rules: number;
   total_string_columns: number;
@@ -45,14 +44,13 @@ function LabelsDashboard() {
 
       {summaries.length === 0 ? (
         <p className="text-[var(--muted-foreground)]">
-          No data sources found. Create a data source first to start labelling.
+          No dataset types found. Create a data source first to start labelling.
         </p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Data Source</TableHead>
-              <TableHead>Type</TableHead>
+              <TableHead>Dataset Type</TableHead>
               <TableHead>Rules</TableHead>
               <TableHead>Columns</TableHead>
               <TableHead>Coverage</TableHead>
@@ -67,17 +65,15 @@ function LabelsDashboard() {
                     )
                   : 0;
               return (
-                <TableRow key={s.dataset_id}>
+                <TableRow key={s.dataset_type}>
                   <TableCell>
                     <Link
-                      href={`/labels/${s.dataset_id}`}
+                      href={`/labels/${s.dataset_type}`}
                       className="text-[var(--primary)] hover:underline font-medium"
                     >
-                      {s.dataset_name}
+                      {s.dataset_type_name}
                     </Link>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{s.dataset_type}</Badge>
+                    <Badge variant="secondary" className="ml-2">{s.dataset_type}</Badge>
                   </TableCell>
                   <TableCell>{s.total_rules}</TableCell>
                   <TableCell>

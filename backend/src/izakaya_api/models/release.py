@@ -21,11 +21,11 @@ class Release(Base):
 
 class ReleaseEntry(Base):
     __tablename__ = "release_entries"
-    __table_args__ = (UniqueConstraint("release_id", "dataset_id", name="uq_release_dataset"),)
+    __table_args__ = (UniqueConstraint("release_id", "data_source_id", name="uq_release_data_source"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     release_id: Mapped[int] = mapped_column(ForeignKey("releases.id", ondelete="CASCADE"), nullable=False)
-    dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
+    data_source_id: Mapped[int] = mapped_column(ForeignKey("data_sources.id", ondelete="CASCADE"), nullable=False)
     pipeline_run_version: Mapped[int] = mapped_column(Integer, nullable=False)
     rows_processed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 

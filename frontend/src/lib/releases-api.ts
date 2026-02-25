@@ -2,8 +2,8 @@ import { api } from "@/lib/api";
 
 export interface ReleaseEntry {
   id: number;
-  dataset_id: number;
-  dataset_name: string | null;
+  data_source_id: number;
+  data_source_name: string | null;
   dataset_type: string | null;
   pipeline_run_version: number;
   rows_processed: number;
@@ -25,7 +25,7 @@ export interface ReleaseListItem {
   name: string;
   description: string | null;
   created_at: string;
-  dataset_count: number;
+  data_source_count: number;
   total_rows: number;
 }
 
@@ -42,9 +42,9 @@ export interface TableDataResponse {
   columns: string[];
 }
 
-export interface DatasetDiff {
-  dataset_id: number;
-  dataset_name: string;
+export interface DataSourceDiff {
+  data_source_id: number;
+  data_source_name: string;
   dataset_type: string;
   r1_version: number | null;
   r1_rows: number | null;
@@ -55,7 +55,7 @@ export interface DatasetDiff {
 export interface ReleaseCompareResponse {
   r1: ReleaseListItem;
   r2: ReleaseListItem;
-  diffs: DatasetDiff[];
+  diffs: DataSourceDiff[];
 }
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
@@ -89,17 +89,17 @@ export async function fetchRelease(id: number): Promise<Release> {
 
 export async function fetchReleaseSummary(
   releaseId: number,
-  datasetId: number
+  dataSourceId: number
 ): Promise<KpiSummary> {
   const res = await api(
-    `/api/releases/${releaseId}/datasets/${datasetId}/summary`
+    `/api/releases/${releaseId}/data-sources/${dataSourceId}/summary`
   );
   return jsonOrThrow(res);
 }
 
 export async function fetchReleaseData(
   releaseId: number,
-  datasetId: number,
+  dataSourceId: number,
   params: {
     offset?: number;
     limit?: number;
@@ -113,7 +113,7 @@ export async function fetchReleaseData(
   if (params.sort_column) query.set("sort_column", params.sort_column);
   if (params.sort_dir) query.set("sort_dir", params.sort_dir);
   const res = await api(
-    `/api/releases/${releaseId}/datasets/${datasetId}/data?${query}`
+    `/api/releases/${releaseId}/data-sources/${dataSourceId}/data?${query}`
   );
   return jsonOrThrow(res);
 }

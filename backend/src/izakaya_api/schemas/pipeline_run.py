@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class PipelineRunResponse(BaseModel):
     id: int
-    dataset_id: int
+    data_source_id: int
     status: str
     started_at: datetime | None
     completed_at: datetime | None

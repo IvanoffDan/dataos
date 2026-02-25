@@ -7,11 +7,12 @@ from izakaya_api.dataset_types import get_dataset_type
 from izakaya_api.deps import get_current_user, get_db
 from izakaya_api.models.connector import Connector
 from izakaya_api.models.data_source import DataSource
-from izakaya_api.models.dataset import Dataset
 from izakaya_api.models.mapping import Mapping
 from izakaya_api.models.pipeline_run import PipelineRun
 from izakaya_api.models.user import User
+from izakaya_api.schemas.data_source import DataSourceCreate, DataSourceResponse, DataSourceUpdate
 from izakaya_api.schemas.mapping import AutoMapResponse, AutoMapSuggestion, MappingBulkSave, MappingResponse
+from izakaya_api.schemas.pipeline_run import PipelineRunResponse
 from izakaya_api.services.bigquery import get_sample_values, get_table_columns
 
 logger = logging.getLogger(__name__)
@@ -19,15 +20,100 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
 
-def _maybe_create_pending_run(db: Session, dataset_id: int) -> None:
+def _maybe_create_pending_run(db: Session, data_source_id: int) -> None:
     existing = (
         db.query(PipelineRun)
-        .filter(PipelineRun.dataset_id == dataset_id, PipelineRun.status == "pending")
+        .filter(PipelineRun.data_source_id == data_source_id, PipelineRun.status == "pending")
         .first()
     )
     if not existing:
-        run = PipelineRun(dataset_id=dataset_id, status="pending")
+        run = PipelineRun(data_source_id=data_source_id, status="pending")
         db.add(run)
+
+
+def _build_response(ds: DataSource, connector: Connector | None) -> DataSourceResponse:
+    return DataSourceResponse(
+        id=ds.id,
+        name=ds.name,
+        description=ds.description,
+        dataset_type=ds.dataset_type,
+        connector_id=ds.connector_id,
+        bq_table=ds.bq_table,
+        status=ds.status,
+        created_at=ds.created_at,
+        updated_at=ds.updated_at,
+        connector_name=connector.name if connector else "",
+    )
+
+
+# --- CRUD ---
+
+
+@router.get("", response_model=list[DataSourceResponse])
+def list_data_sources(
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    sources = db.query(DataSource).order_by(DataSource.created_at.desc()).all()
+    connector_ids = {s.connector_id for s in sources}
+    connectors = {c.id: c for c in db.query(Connector).filter(Connector.id.in_(connector_ids)).all()} if connector_ids else {}
+    return [_build_response(s, connectors.get(s.connector_id)) for s in sources]
+
+
+@router.post("", response_model=DataSourceResponse, status_code=201)
+def create_data_source(
+    body: DataSourceCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    if not get_dataset_type(body.dataset_type):
+        raise HTTPException(status_code=400, detail=f"Unknown dataset type: {body.dataset_type}")
+    connector = db.get(Connector, body.connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    ds = DataSource(
+        name=body.name,
+        description=body.description,
+        dataset_type=body.dataset_type,
+        connector_id=body.connector_id,
+        bq_table=body.bq_table,
+        status="pending_mapping",
+    )
+    db.add(ds)
+    db.commit()
+    db.refresh(ds)
+    return _build_response(ds, connector)
+
+
+@router.get("/{data_source_id}", response_model=DataSourceResponse)
+def get_data_source(
+    data_source_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    ds = db.get(DataSource, data_source_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    connector = db.get(Connector, ds.connector_id)
+    return _build_response(ds, connector)
+
+
+@router.patch("/{data_source_id}", response_model=DataSourceResponse)
+def update_data_source(
+    data_source_id: int,
+    body: DataSourceUpdate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    ds = db.get(DataSource, data_source_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    for key, value in body.model_dump(exclude_unset=True).items():
+        setattr(ds, key, value)
+    db.commit()
+    db.refresh(ds)
+    connector = db.get(Connector, ds.connector_id)
+    return _build_response(ds, connector)
 
 
 @router.delete("/{data_source_id}", status_code=204)
@@ -39,10 +125,47 @@ def delete_data_source(
     ds = db.get(DataSource, data_source_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Data source not found")
-    dataset_id = ds.dataset_id
     db.delete(ds)
-    _maybe_create_pending_run(db, dataset_id)
     db.commit()
+
+
+# --- Pipeline runs ---
+
+
+@router.post("/{data_source_id}/run", response_model=PipelineRunResponse, status_code=201)
+def trigger_pipeline_run(
+    data_source_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    ds = db.get(DataSource, data_source_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    run = PipelineRun(data_source_id=data_source_id, status="pending")
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+@router.get("/{data_source_id}/runs", response_model=list[PipelineRunResponse])
+def list_pipeline_runs(
+    data_source_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    ds = db.get(DataSource, data_source_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    return (
+        db.query(PipelineRun)
+        .filter(PipelineRun.data_source_id == data_source_id)
+        .order_by(PipelineRun.created_at.desc())
+        .all()
+    )
+
+
+# --- Column mappings ---
 
 
 @router.get("/{data_source_id}/source-columns")
@@ -70,9 +193,7 @@ def save_mappings(
     ds = db.get(DataSource, data_source_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Data source not found")
-    # Delete existing mappings
     db.query(Mapping).filter(Mapping.data_source_id == data_source_id).delete()
-    # Create new mappings
     new_mappings = []
     for item in body.mappings:
         m = Mapping(
@@ -83,9 +204,8 @@ def save_mappings(
         )
         db.add(m)
         new_mappings.append(m)
-    # Update data source status
     ds.status = "mapped" if body.mappings else "pending_mapping"
-    _maybe_create_pending_run(db, ds.dataset_id)
+    _maybe_create_pending_run(db, data_source_id)
     db.commit()
     for m in new_mappings:
         db.refresh(m)
@@ -108,6 +228,8 @@ def get_mappings(
         .all()
     )
 
+
+# --- Auto-map ---
 
 _AUTOMAP_SYSTEM = """\
 You are a data column mapping assistant. You match source data columns to a target \
@@ -145,24 +267,18 @@ def auto_map(
 ):
     from izakaya_api.services.ai import chat_json
 
-    # Load data source + related objects
     ds = db.get(DataSource, data_source_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Data source not found")
 
-    dataset = db.get(Dataset, ds.dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-
-    dt = get_dataset_type(dataset.type)
+    dt = get_dataset_type(ds.dataset_type)
     if not dt:
-        raise HTTPException(status_code=400, detail=f"Unknown dataset type: {dataset.type}")
+        raise HTTPException(status_code=400, detail=f"Unknown dataset type: {ds.dataset_type}")
 
     connector = db.get(Connector, ds.connector_id)
     if not connector or not connector.schema_name:
         raise HTTPException(status_code=400, detail="Connector has no BQ schema")
 
-    # Load existing mappings to identify already-mapped targets and used source columns
     existing_mappings = (
         db.query(Mapping)
         .filter(Mapping.data_source_id == data_source_id)
@@ -175,12 +291,10 @@ def auto_map(
     if not unmapped_cols:
         return AutoMapResponse(suggestions=[], skipped_count=len(dt.columns))
 
-    # Get source columns and sample values
     source_cols = get_table_columns(connector.schema_name, ds.bq_table)
     source_col_names = [c["name"] for c in source_cols]
     samples = get_sample_values(connector.schema_name, ds.bq_table, source_col_names)
 
-    # Build prompt
     target_lines = []
     for col in unmapped_cols:
         parts = [f"  - {col.name} ({col.data_type.value}): {col.description}"]
@@ -219,6 +333,7 @@ def auto_map(
         raise HTTPException(status_code=502, detail="AI returned invalid response")
 
     suggestions = []
+    unmapped_names = {c.name for c in unmapped_cols}
     for item in result:
         try:
             target = str(item["target_column"])
@@ -229,8 +344,6 @@ def auto_map(
         except (KeyError, TypeError, ValueError):
             continue
 
-        # Only include suggestions for unmapped target columns
-        unmapped_names = {c.name for c in unmapped_cols}
         if target not in unmapped_names:
             continue
 

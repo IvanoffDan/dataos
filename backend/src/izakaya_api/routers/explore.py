@@ -5,7 +5,6 @@ from izakaya_api.dataset_types import get_dataset_type
 from izakaya_api.deps import get_current_user, get_db
 from izakaya_api.models.connector import Connector
 from izakaya_api.models.data_source import DataSource
-from izakaya_api.models.dataset import Dataset
 from izakaya_api.models.user import User
 from izakaya_api.schemas.explore import (
     BreakdownItem,
@@ -22,14 +21,14 @@ from izakaya_api.services import bigquery as bq_service
 router = APIRouter(prefix="/explore", tags=["explore"])
 
 
-def _get_dataset_and_type(dataset_id: int, db: Session):
-    dataset = db.get(Dataset, dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    dt = get_dataset_type(dataset.type)
+def _get_data_source_and_type(data_source_id: int, db: Session):
+    ds = db.get(DataSource, data_source_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    dt = get_dataset_type(ds.dataset_type)
     if not dt:
-        raise HTTPException(status_code=400, detail=f"Unknown dataset type: {dataset.type}")
-    return dataset, dt
+        raise HTTPException(status_code=400, detail=f"Unknown dataset type: {ds.dataset_type}")
+    return ds, dt
 
 
 def _find_metric(dt, metric_id: str):
@@ -39,43 +38,43 @@ def _find_metric(dt, metric_id: str):
     raise HTTPException(status_code=400, detail=f"Unknown metric: {metric_id}")
 
 
-@router.get("/datasets/{dataset_id}/summary", response_model=KpiSummaryResponse | None)
+@router.get("/data-sources/{data_source_id}/summary", response_model=KpiSummaryResponse | None)
 def get_summary(
-    dataset_id: int,
+    data_source_id: int,
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    dataset, dt = _get_dataset_and_type(dataset_id, db)
-    result = bq_service.get_kpi_summary(dataset.type, dt.metrics)
+    ds, dt = _get_data_source_and_type(data_source_id, db)
+    result = bq_service.get_kpi_summary(ds.dataset_type, dt.metrics)
     if result is None:
         return KpiSummaryResponse(total_rows=0, min_date=None, max_date=None, metrics={})
     return result
 
 
-@router.get("/datasets/{dataset_id}/metrics", response_model=list[MetricResponse])
+@router.get("/data-sources/{data_source_id}/metrics", response_model=list[MetricResponse])
 def get_metrics(
-    dataset_id: int,
+    data_source_id: int,
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    dataset, dt = _get_dataset_and_type(dataset_id, db)
+    ds, dt = _get_data_source_and_type(data_source_id, db)
     return [
         MetricResponse(id=m.id, name=m.name, format_type=m.format_type, default=m.default)
         for m in dt.metrics
     ]
 
 
-@router.post("/datasets/{dataset_id}/time-series", response_model=list[TimeSeriesPoint])
+@router.post("/data-sources/{data_source_id}/time-series", response_model=list[TimeSeriesPoint])
 def get_time_series(
-    dataset_id: int,
+    data_source_id: int,
     body: TimeSeriesRequest,
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    dataset, dt = _get_dataset_and_type(dataset_id, db)
+    ds, dt = _get_data_source_and_type(data_source_id, db)
     metric = _find_metric(dt, body.metric_id)
     return bq_service.get_time_series(
-        dataset_type=dataset.type,
+        dataset_type=ds.dataset_type,
         metric_sql=metric.sql_expression,
         granularity=body.granularity,
         group_by=body.group_by,
@@ -84,17 +83,17 @@ def get_time_series(
     )
 
 
-@router.post("/datasets/{dataset_id}/breakdown", response_model=list[BreakdownItem])
+@router.post("/data-sources/{data_source_id}/breakdown", response_model=list[BreakdownItem])
 def get_breakdown(
-    dataset_id: int,
+    data_source_id: int,
     body: BreakdownRequest,
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    dataset, dt = _get_dataset_and_type(dataset_id, db)
+    ds, dt = _get_data_source_and_type(data_source_id, db)
     metric = _find_metric(dt, body.metric_id)
     return bq_service.get_dimension_breakdown(
-        dataset_type=dataset.type,
+        dataset_type=ds.dataset_type,
         metric_sql=metric.sql_expression,
         group_by=body.group_by,
         date_from=body.date_from,
@@ -103,9 +102,9 @@ def get_breakdown(
     )
 
 
-@router.get("/datasets/{dataset_id}/data", response_model=TableDataResponse)
+@router.get("/data-sources/{data_source_id}/data", response_model=TableDataResponse)
 def get_data(
-    dataset_id: int,
+    data_source_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     sort_column: str | None = None,
@@ -113,9 +112,9 @@ def get_data(
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    dataset, dt = _get_dataset_and_type(dataset_id, db)
+    ds, dt = _get_data_source_and_type(data_source_id, db)
     return bq_service.get_table_data(
-        dataset_type=dataset.type,
+        dataset_type=ds.dataset_type,
         offset=offset,
         limit=limit,
         sort_column=sort_column,
@@ -156,11 +155,8 @@ def get_mapped_preview(
     source = db.get(DataSource, data_source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Data source not found")
-    dataset = db.get(Dataset, source.dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
     return bq_service.get_mapped_table_preview(
-        dataset_type=dataset.type,
+        dataset_type=source.dataset_type,
         data_source_id=data_source_id,
         offset=offset,
         limit=limit,

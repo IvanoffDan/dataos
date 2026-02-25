@@ -24,10 +24,10 @@ import { BreakdownChart } from "@/components/charts/breakdown-chart";
 import { DataTable } from "@/components/data-table/data-table";
 import { SortingState } from "@tanstack/react-table";
 
-interface Dataset {
+interface DataSource {
   id: number;
   name: string;
-  type: string;
+  dataset_type: string;
 }
 
 function dateRangeToFrom(range: string): string | null {
@@ -78,11 +78,11 @@ function formatMetricValue(value: number, formatType: string): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function DatasetExplorer() {
+function DataSourceExplorer() {
   const params = useParams();
-  const datasetId = Number(params.datasetId);
+  const dataSourceId = Number(params.id);
 
-  const [dataset, setDataset] = useState<Dataset | null>(null);
+  const [dataSource, setDataSource] = useState<DataSource | null>(null);
   const [kpi, setKpi] = useState<KpiSummary | null>(null);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [metrics, setMetrics] = useState<MetricDef[]>([]);
@@ -110,30 +110,30 @@ function DatasetExplorer() {
 
   const PAGE_SIZE = 50;
 
-  // Load dataset + KPIs + metrics
+  // Load data source + KPIs + metrics
   useEffect(() => {
-    api(`/api/datasets/${datasetId}`)
+    api(`/api/data-sources/${dataSourceId}`)
       .then((r) => r.json())
-      .then(setDataset);
+      .then(setDataSource);
 
     setKpiLoading(true);
-    fetchKpiSummary(datasetId)
+    fetchKpiSummary(dataSourceId)
       .then(setKpi)
       .finally(() => setKpiLoading(false));
 
-    fetchMetrics(datasetId).then((m) => {
+    fetchMetrics(dataSourceId).then((m) => {
       setMetrics(m);
       const def = m.find((x) => x.default) || m[0];
       if (def) setSelectedMetric(def.id);
     });
-  }, [datasetId]);
+  }, [dataSourceId]);
 
   // Load chart data when controls change
   const loadCharts = useCallback(() => {
     if (!selectedMetric) return;
 
     setTsLoading(true);
-    fetchTimeSeries(datasetId, {
+    fetchTimeSeries(dataSourceId, {
       metric_id: selectedMetric,
       granularity,
       group_by: groupBy,
@@ -144,7 +144,7 @@ function DatasetExplorer() {
 
     if (groupBy) {
       setBreakdownLoading(true);
-      fetchBreakdown(datasetId, {
+      fetchBreakdown(dataSourceId, {
         metric_id: selectedMetric,
         group_by: groupBy,
         date_from: dateRangeToFrom(dateRange),
@@ -154,7 +154,7 @@ function DatasetExplorer() {
     } else {
       setBreakdownData([]);
     }
-  }, [datasetId, selectedMetric, granularity, groupBy, dateRange]);
+  }, [dataSourceId, selectedMetric, granularity, groupBy, dateRange]);
 
   useEffect(() => {
     if (activeTab === "chart") loadCharts();
@@ -165,7 +165,7 @@ function DatasetExplorer() {
     setTableLoading(true);
     const sortCol = sorting[0]?.id;
     const sortDir = sorting[0]?.desc === false ? "asc" : "desc";
-    fetchTableData(datasetId, {
+    fetchTableData(dataSourceId, {
       offset: tablePage * PAGE_SIZE,
       limit: PAGE_SIZE,
       sort_column: sortCol,
@@ -173,7 +173,7 @@ function DatasetExplorer() {
     })
       .then(setTableData)
       .finally(() => setTableLoading(false));
-  }, [datasetId, tablePage, sorting]);
+  }, [dataSourceId, tablePage, sorting]);
 
   useEffect(() => {
     if (activeTab === "table") loadTable();
@@ -181,7 +181,7 @@ function DatasetExplorer() {
 
   const currentMetric = metrics.find((m) => m.id === selectedMetric);
 
-  if (!dataset) {
+  if (!dataSource) {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
   }
 
@@ -197,7 +197,7 @@ function DatasetExplorer() {
       </div>
 
       <h1 className="text-2xl font-bold text-[var(--primary)] mb-6">
-        {dataset.name}
+        {dataSource.name}
       </h1>
 
       {/* KPI Cards */}
@@ -265,7 +265,7 @@ function DatasetExplorer() {
             onGranularityChange={setGranularity}
             groupBy={groupBy}
             onGroupByChange={setGroupBy}
-            groupByOptions={getGroupByOptions(dataset.type)}
+            groupByOptions={getGroupByOptions(dataSource.dataset_type)}
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
           />
@@ -335,6 +335,6 @@ function DatasetExplorer() {
   );
 }
 
-export default function DatasetExplorePage() {
-  return <DatasetExplorer />;
+export default function DataSourceExplorePage() {
+  return <DataSourceExplorer />;
 }

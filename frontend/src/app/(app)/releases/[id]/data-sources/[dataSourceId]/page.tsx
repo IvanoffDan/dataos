@@ -31,10 +31,10 @@ import { KpiCard } from "@/components/charts/kpi-card";
 
 const PAGE_SIZE = 50;
 
-function ReleaseDatasetDetail() {
+function ReleaseDataSourceDetail() {
   const params = useParams();
   const releaseId = Number(params.id);
-  const datasetId = Number(params.datasetId);
+  const dataSourceId = Number(params.dataSourceId);
 
   const [release, setRelease] = useState<Release | null>(null);
   const [summary, setSummary] = useState<KpiSummary | null>(null);
@@ -45,21 +45,21 @@ function ReleaseDatasetDetail() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [error, setError] = useState("");
 
-  const entry = release?.entries.find((e) => e.dataset_id === datasetId);
+  const entry = release?.entries.find((e) => e.data_source_id === dataSourceId);
 
   useEffect(() => {
     fetchRelease(releaseId)
       .then(setRelease)
       .catch((e) => setError(e.message));
     setSummaryLoading(true);
-    fetchReleaseSummary(releaseId, datasetId)
+    fetchReleaseSummary(releaseId, dataSourceId)
       .then(setSummary)
       .catch(() => {})
       .finally(() => setSummaryLoading(false));
-  }, [releaseId, datasetId]);
+  }, [releaseId, dataSourceId]);
 
   const loadData = useCallback(() => {
-    fetchReleaseData(releaseId, datasetId, {
+    fetchReleaseData(releaseId, dataSourceId, {
       offset: page * PAGE_SIZE,
       limit: PAGE_SIZE,
       sort_column: sortColumn || undefined,
@@ -67,7 +67,7 @@ function ReleaseDatasetDetail() {
     })
       .then(setTableData)
       .catch((e) => setError(e.message));
-  }, [releaseId, datasetId, page, sortColumn, sortDir]);
+  }, [releaseId, dataSourceId, page, sortColumn, sortDir]);
 
   useEffect(() => {
     loadData();
@@ -104,7 +104,7 @@ function ReleaseDatasetDetail() {
 
       <div className="flex items-center gap-3 mb-6">
         <h1 className="text-2xl font-bold text-[var(--primary)]">
-          {entry?.dataset_name || `Dataset ${datasetId}`}
+          {entry?.data_source_name || `Data Source ${dataSourceId}`}
         </h1>
         {entry && (
           <>
@@ -242,6 +242,6 @@ function ReleaseDatasetDetail() {
   );
 }
 
-export default function ReleaseDatasetPage() {
-  return <ReleaseDatasetDetail />;
+export default function ReleaseDataSourcePage() {
+  return <ReleaseDataSourceDetail />;
 }

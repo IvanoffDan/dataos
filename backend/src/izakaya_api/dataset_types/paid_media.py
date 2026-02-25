@@ -1,7 +1,7 @@
-from izakaya_api.dataset_types.base import ColumnDef, DatasetTypeDef, DataType, MetricDef
+from izakaya_api.dataset_types.base import ColumnDef, DatasetType, DatasetTypeDef, DataType, MetricDef
 
 paid_media = DatasetTypeDef(
-    id="paid_media",
+    id=DatasetType.PAID_MEDIA,
     name="Paid Media",
     description=(
         "Paid media activity in market for a specific channel, showing what is "

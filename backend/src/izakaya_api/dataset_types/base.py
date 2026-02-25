@@ -9,6 +9,11 @@ class DataType(str, Enum):
     DATE = "date"
 
 
+class DatasetType(str, Enum):
+    PAID_MEDIA = "paid_media"
+    SALES = "sales"
+
+
 @dataclass
 class ColumnDef:
     name: str
@@ -33,7 +38,7 @@ class MetricDef:
 
 @dataclass
 class DatasetTypeDef:
-    id: str
+    id: DatasetType
     name: str
     description: str
     columns: list[ColumnDef] = field(default_factory=list)

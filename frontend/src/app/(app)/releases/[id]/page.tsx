@@ -38,11 +38,11 @@ function ReleaseDetail() {
     fetchRelease(releaseId)
       .then((r) => {
         setRelease(r);
-        // Load KPI summaries for each dataset entry
+        // Load KPI summaries for each data source entry
         r.entries.forEach((entry) => {
-          fetchReleaseSummary(releaseId, entry.dataset_id)
+          fetchReleaseSummary(releaseId, entry.data_source_id)
             .then((s) =>
-              setSummaries((prev) => ({ ...prev, [entry.dataset_id]: s }))
+              setSummaries((prev) => ({ ...prev, [entry.data_source_id]: s }))
             )
             .catch(() => {});
         });
@@ -87,7 +87,7 @@ function ReleaseDetail() {
       {/* Summary KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <KpiCard
-          label="Datasets"
+          label="Data Sources"
           value={String(release.entries.length)}
           loading={false}
         />
@@ -108,21 +108,21 @@ function ReleaseDetail() {
         />
       </div>
 
-      {/* Dataset Entries */}
+      {/* Data Source Entries */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Datasets in this Release</CardTitle>
+          <CardTitle className="text-lg">Data Sources in this Release</CardTitle>
         </CardHeader>
         <CardContent>
           {release.entries.length === 0 ? (
             <p className="text-[var(--muted-foreground)] text-sm">
-              No datasets in this release.
+              No data sources in this release.
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Dataset</TableHead>
+                  <TableHead>Data Source</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Version</TableHead>
                   <TableHead>Rows</TableHead>
@@ -132,11 +132,11 @@ function ReleaseDetail() {
               </TableHeader>
               <TableBody>
                 {release.entries.map((entry) => {
-                  const summary = summaries[entry.dataset_id];
+                  const summary = summaries[entry.data_source_id];
                   return (
                     <TableRow key={entry.id}>
                       <TableCell className="font-medium">
-                        {entry.dataset_name || `Dataset ${entry.dataset_id}`}
+                        {entry.data_source_name || `Data Source ${entry.data_source_id}`}
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary">
@@ -157,7 +157,7 @@ function ReleaseDetail() {
                       <TableCell className="text-right">
                         <Button asChild variant="outline" size="sm">
                           <Link
-                            href={`/releases/${releaseId}/datasets/${entry.dataset_id}`}
+                            href={`/releases/${releaseId}/data-sources/${entry.data_source_id}`}
                           >
                             View Data
                           </Link>

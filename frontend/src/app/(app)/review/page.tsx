@@ -14,20 +14,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-interface Dataset {
+interface DataSource {
   id: number;
   name: string;
-  type: string;
+  dataset_type: string;
 }
 
 interface PipelineRun {
   id: number;
-  dataset_id: number;
+  data_source_id: number;
   status: string;
   completed_at: string | null;
 }
 
-interface DatasetWithStats extends Dataset {
+interface DataSourceWithStats extends DataSource {
   totalRows: number;
   minDate: string | null;
   maxDate: string | null;
@@ -35,27 +35,20 @@ interface DatasetWithStats extends Dataset {
 }
 
 function ReviewList() {
-  const [datasets, setDatasets] = useState<DatasetWithStats[]>([]);
+  const [dataSources, setDataSources] = useState<DataSourceWithStats[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const [datasetsRes, runsRes] = await Promise.all([
-        api("/api/datasets").then((r) => r.json()),
-        // We'll fetch runs per dataset after
-        Promise.resolve([]),
-      ]);
+      const dataSourcesRes: DataSource[] = await api("/api/data-sources").then((r) => r.json());
 
-      const allDatasets: Dataset[] = datasetsRes;
-
-      // For each dataset, check if it has successful runs and get KPIs
-      const results: DatasetWithStats[] = [];
+      const results: DataSourceWithStats[] = [];
 
       await Promise.all(
-        allDatasets.map(async (ds) => {
+        dataSourcesRes.map(async (ds) => {
           try {
             const runs: PipelineRun[] = await api(
-              `/api/datasets/${ds.id}/runs`
+              `/api/data-sources/${ds.id}/runs`
             ).then((r) => r.json());
             const successRuns = runs.filter((r) => r.status === "success");
             if (successRuns.length === 0) return;
@@ -71,13 +64,13 @@ function ReviewList() {
               lastRunDate: lastRun?.completed_at ?? null,
             });
           } catch {
-            // Skip datasets that error
+            // Skip data sources that error
           }
         })
       );
 
       results.sort((a, b) => a.name.localeCompare(b.name));
-      setDatasets(results);
+      setDataSources(results);
       setLoading(false);
     }
 
@@ -99,7 +92,7 @@ function ReviewList() {
             />
           ))}
         </div>
-      ) : datasets.length === 0 ? (
+      ) : dataSources.length === 0 ? (
         <p className="text-[var(--muted-foreground)] text-sm">
           No data sources with completed pipeline runs yet. Run a pipeline first to
           explore data here.
@@ -117,7 +110,7 @@ function ReviewList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {datasets.map((ds) => (
+              {dataSources.map((ds) => (
                 <TableRow key={ds.id}>
                   <TableCell className="font-medium">
                     <Link
@@ -128,7 +121,7 @@ function ReviewList() {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{ds.type}</Badge>
+                    <Badge variant="secondary">{ds.dataset_type}</Badge>
                   </TableCell>
                   <TableCell>{ds.totalRows.toLocaleString()}</TableCell>
                   <TableCell className="text-[var(--muted-foreground)]">

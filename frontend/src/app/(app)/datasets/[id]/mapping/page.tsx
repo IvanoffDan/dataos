@@ -41,8 +41,7 @@ type MappingEntry =
 function MappingEditor() {
   const params = useParams();
   const router = useRouter();
-  const datasetId = params.id as string;
-  const sourceId = params.sourceId as string;
+  const dataSourceId = params.id as string;
 
   const [targetColumns, setTargetColumns] = useState<ColumnDef[]>([]);
   const [sourceColumns, setSourceColumns] = useState<SourceColumn[]>([]);
@@ -58,24 +57,24 @@ function MappingEditor() {
   const [autoMapError, setAutoMapError] = useState("");
 
   useEffect(() => {
-    // Load dataset to get type
-    api(`/api/datasets/${datasetId}`)
+    // Load data source to get dataset_type
+    api(`/api/data-sources/${dataSourceId}`)
       .then((r) => r.json())
-      .then((dataset) => {
-        setDatasetType(dataset.type);
+      .then((ds) => {
+        setDatasetType(ds.dataset_type);
         // Load target columns for this dataset type
-        return api(`/api/datasets/types/${dataset.type}/columns`);
+        return api(`/api/dataset-types/${ds.dataset_type}/columns`);
       })
       .then((r) => r.json())
       .then(setTargetColumns);
 
     // Load source columns
-    api(`/api/data-sources/${sourceId}/source-columns`)
+    api(`/api/data-sources/${dataSourceId}/source-columns`)
       .then((r) => r.json())
       .then(setSourceColumns);
 
     // Load existing mappings
-    api(`/api/data-sources/${sourceId}/mappings`)
+    api(`/api/data-sources/${dataSourceId}/mappings`)
       .then((r) => r.json())
       .then((existing: ExistingMapping[]) => {
         const map: Record<string, MappingEntry> = {};
@@ -88,7 +87,7 @@ function MappingEditor() {
         }
         setMappings(map);
       });
-  }, [datasetId, sourceId]);
+  }, [dataSourceId]);
 
   const handleMappingChange = (targetCol: string, entry: MappingEntry | null) => {
     setMappings((prev) => {
@@ -100,7 +99,6 @@ function MappingEditor() {
       }
       return next;
     });
-    // Manual edit clears AI badge for this column
     setAiSuggestions((prev) => {
       if (!prev[targetCol]) return prev;
       const next = { ...prev };
@@ -121,7 +119,6 @@ function MappingEditor() {
       }
       return next;
     });
-    // Manual edit clears AI badge
     setAiSuggestions((prev) => {
       if (!prev[targetCol]) return prev;
       const next = { ...prev };
@@ -135,7 +132,7 @@ function MappingEditor() {
     setAutoMapping(true);
     setAutoMapError("");
     try {
-      const res = await api(`/api/data-sources/${sourceId}/auto-map`, {
+      const res = await api(`/api/data-sources/${dataSourceId}/auto-map`, {
         method: "POST",
       });
       if (!res.ok) {
@@ -147,7 +144,6 @@ function MappingEditor() {
       const newMappings: Record<string, MappingEntry> = {};
 
       for (const s of data.suggestions) {
-        // Only apply to unmapped columns
         const existing = mappings[s.target_column];
         if (existing && existing.value !== "") continue;
 
@@ -195,12 +191,12 @@ function MappingEditor() {
           target_column,
           static_value: entry.type === "static" ? entry.value : null,
         }));
-      const res = await api(`/api/data-sources/${sourceId}/mappings`, {
+      const res = await api(`/api/data-sources/${dataSourceId}/mappings`, {
         method: "PUT",
         body: JSON.stringify({ mappings: mappingItems }),
       });
       if (!res.ok) throw new Error((await res.json()).detail);
-      router.push(`/datasets/${datasetId}`);
+      router.push(`/datasets/${dataSourceId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -218,7 +214,7 @@ function MappingEditor() {
     <div>
       <div className="mb-4">
         <Link
-          href={`/datasets/${datasetId}`}
+          href={`/datasets/${dataSourceId}`}
           className="text-[var(--primary)] hover:underline text-sm"
         >
           &larr; Back to Data Source

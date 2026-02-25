@@ -1,7 +1,7 @@
-from izakaya_api.dataset_types.base import ColumnDef, DatasetTypeDef, DataType, MetricDef
+from izakaya_api.dataset_types.base import ColumnDef, DatasetType, DatasetTypeDef, DataType, MetricDef
 
 sales = DatasetTypeDef(
-    id="sales",
+    id=DatasetType.SALES,
     name="Sales",
     description="Transactional sales data with product, geography, and value dimensions.",
     grain="One row per transaction line item per day",

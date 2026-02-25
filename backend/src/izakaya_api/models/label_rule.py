@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, Float, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from izakaya_api.db import Base
@@ -10,7 +10,7 @@ class LabelRule(Base):
     __tablename__ = "label_rules"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"))
+    dataset_type: Mapped[str] = mapped_column(String(50))
     column_name: Mapped[str] = mapped_column(String(255))
     match_value: Mapped[str] = mapped_column(String(500))
     replace_value: Mapped[str] = mapped_column(String(500))

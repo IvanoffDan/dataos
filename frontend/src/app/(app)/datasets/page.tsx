@@ -14,22 +14,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-interface Dataset {
+interface DataSource {
   id: number;
   name: string;
-  type: string;
+  dataset_type: string;
   description: string;
+  connector_name: string;
+  bq_table: string;
+  status: string;
   created_at: string;
   updated_at: string;
 }
 
-function DatasetList() {
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
+function DataSourceList() {
+  const [dataSources, setDataSources] = useState<DataSource[]>([]);
 
   useEffect(() => {
-    api("/api/datasets")
+    api("/api/data-sources")
       .then((res) => res.json())
-      .then(setDatasets);
+      .then(setDataSources);
   }, []);
 
   return (
@@ -45,7 +48,7 @@ function DatasetList() {
           <Link href="/datasets/new">Create Data Source</Link>
         </Button>
       </div>
-      {datasets.length === 0 ? (
+      {dataSources.length === 0 ? (
         <p className="text-[var(--muted-foreground)]">
           No data sources created yet.
         </p>
@@ -56,12 +59,13 @@ function DatasetList() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
+                <TableHead>Connector</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Created</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {datasets.map((d) => (
+              {dataSources.map((d) => (
                 <TableRow key={d.id}>
                   <TableCell>
                     <Link
@@ -72,7 +76,10 @@ function DatasetList() {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{d.type}</Badge>
+                    <Badge variant="secondary">{d.dataset_type}</Badge>
+                  </TableCell>
+                  <TableCell className="text-[var(--muted-foreground)]">
+                    {d.connector_name || "\u2014"}
                   </TableCell>
                   <TableCell className="text-[var(--muted-foreground)]">
                     {d.description || "\u2014"}
@@ -91,5 +98,5 @@ function DatasetList() {
 }
 
 export default function DatasetsPage() {
-  return <DatasetList />;
+  return <DataSourceList />;
 }

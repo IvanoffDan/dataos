@@ -34,11 +34,11 @@ interface ConnectorSummary {
   created_at: string;
 }
 
-interface DatasetSummary {
+interface DataSourceSummary {
   id: number;
   name: string;
-  type: string;
-  source_count: number;
+  dataset_type: string;
+  connector_name: string;
   latest_run_status: string | null;
   latest_run_at: string | null;
   rule_count: number;
@@ -46,8 +46,8 @@ interface DatasetSummary {
 
 interface RecentRunItem {
   id: number;
-  dataset_id: number;
-  dataset_name: string;
+  data_source_id: number;
+  data_source_name: string;
   status: string;
   rows_processed: number;
   completed_at: string | null;
@@ -60,15 +60,15 @@ interface DashboardData {
   connectors_failing: number;
   connectors_syncing: number;
   latest_sync: string | null;
-  dataset_count: number;
+  data_source_count: number;
   total_runs: number;
   runs_succeeded: number;
   runs_failed: number;
   total_rows_processed: number;
   total_label_rules: number;
-  datasets_with_rules: number;
+  types_with_rules: number;
   connectors: ConnectorSummary[];
-  datasets: DatasetSummary[];
+  data_sources: DataSourceSummary[];
   recent_runs: RecentRunItem[];
 }
 
@@ -394,7 +394,7 @@ function DashboardContent() {
   if (loading) return <SkeletonDashboard />;
   if (!data) return <p className="text-red-600">Failed to load dashboard.</p>;
 
-  const isEmpty = data.connector_count === 0 && data.dataset_count === 0;
+  const isEmpty = data.connector_count === 0 && data.data_source_count === 0;
   if (isEmpty) return <EmptyOnboarding />;
 
   const pipelineSubtitle =
@@ -430,12 +430,8 @@ function DashboardContent() {
         />
         <MetricCard
           title="Data Sources"
-          value={data.dataset_count}
-          subtitle={
-            data.datasets.filter((d) => d.source_count > 0).length > 0
-              ? `${data.datasets.filter((d) => d.source_count > 0).length} with connectors`
-              : "No connectors mapped"
-          }
+          value={data.data_source_count}
+          subtitle={`${data.data_sources.length} configured`}
           icon={<DatabaseIcon />}
         />
         <MetricCard
@@ -448,8 +444,8 @@ function DashboardContent() {
           title="Labels"
           value={`${data.total_label_rules} rules`}
           subtitle={
-            data.datasets_with_rules > 0
-              ? `across ${data.datasets_with_rules} data source${data.datasets_with_rules > 1 ? "s" : ""}`
+            data.types_with_rules > 0
+              ? `across ${data.types_with_rules} type${data.types_with_rules > 1 ? "s" : ""}`
               : "No rules yet"
           }
           icon={<TagIcon />}
@@ -543,10 +539,10 @@ function DashboardContent() {
                   >
                     <div className="min-w-0 flex-1">
                       <Link
-                        href={`/datasets/${run.dataset_id}`}
+                        href={`/datasets/${run.data_source_id}`}
                         className="text-sm font-medium text-[var(--primary)] hover:underline truncate block"
                       >
-                        {run.dataset_name}
+                        {run.data_source_name}
                       </Link>
                       <span className="text-xs text-[var(--muted-foreground)]">
                         {run.rows_processed.toLocaleString()} rows
@@ -582,7 +578,7 @@ function DashboardContent() {
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          {data.datasets.length === 0 ? (
+          {data.data_sources.length === 0 ? (
             <p className="text-sm text-[var(--muted-foreground)] py-4">
               No data sources yet.{" "}
               <Link
@@ -599,13 +595,13 @@ function DashboardContent() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Type</TableHead>
-                    <TableHead className="text-center">Connectors</TableHead>
+                    <TableHead>Connector</TableHead>
                     <TableHead>Latest Run</TableHead>
                     <TableHead className="text-center">Label Rules</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.datasets.map((ds) => (
+                  {data.data_sources.map((ds) => (
                     <TableRow key={ds.id}>
                       <TableCell>
                         <Link
@@ -616,10 +612,10 @@ function DashboardContent() {
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{ds.type || "—"}</Badge>
+                        <Badge variant="secondary">{ds.dataset_type || "—"}</Badge>
                       </TableCell>
-                      <TableCell className="text-center text-sm">
-                        {ds.source_count}
+                      <TableCell className="text-[var(--muted-foreground)] text-sm">
+                        {ds.connector_name || "—"}
                       </TableCell>
                       <TableCell>
                         {ds.latest_run_status ? (

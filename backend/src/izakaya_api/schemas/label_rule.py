@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class LabelRuleCreate(BaseModel):
-    dataset_id: int
+    dataset_type: str
     column_name: str
     match_value: str
     replace_value: str
@@ -12,7 +12,7 @@ class LabelRuleCreate(BaseModel):
 
 class LabelRuleResponse(BaseModel):
     id: int
-    dataset_id: int
+    dataset_type: str
     column_name: str
     match_value: str
     replace_value: str
@@ -39,9 +39,8 @@ class LabelRuleBulkSave(BaseModel):
 
 
 class DatasetLabelSummary(BaseModel):
-    dataset_id: int
-    dataset_name: str
     dataset_type: str
+    dataset_type_name: str
     total_rules: int
     columns_with_rules: int
     total_string_columns: int
@@ -61,9 +60,8 @@ class ColumnStats(BaseModel):
 
 
 class ColumnStatsResponse(BaseModel):
-    dataset_id: int
-    dataset_name: str
     dataset_type: str
+    dataset_type_name: str
     total_rows: int | None = None
     columns: list[ColumnStats]
 
@@ -81,7 +79,7 @@ class DistinctValue(BaseModel):
 
 
 class ColumnValuesResponse(BaseModel):
-    dataset_id: int
+    dataset_type: str
     column_name: str
     column_description: str
     total_rows: int | None = None

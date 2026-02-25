@@ -5,13 +5,12 @@ from sqlalchemy.orm import Session
 from izakaya_api.deps import get_current_user, get_db
 from izakaya_api.models.connector import Connector
 from izakaya_api.models.data_source import DataSource
-from izakaya_api.models.dataset import Dataset
 from izakaya_api.models.label_rule import LabelRule
 from izakaya_api.models.pipeline_run import PipelineRun
 from izakaya_api.schemas.dashboard import (
     ConnectorSummary,
     DashboardResponse,
-    DatasetSummary,
+    DataSourceSummary,
     RecentRunItem,
 )
 
@@ -45,62 +44,53 @@ def get_dashboard(
 
     connector_summaries = [ConnectorSummary.model_validate(c) for c in connectors]
 
-    # --- Dataset stats with source counts and latest run ---
-    datasets = db.query(Dataset).order_by(Dataset.created_at.desc()).all()
-    dataset_ids = [d.id for d in datasets]
+    # --- Data source stats with latest run ---
+    data_sources = db.query(DataSource).order_by(DataSource.created_at.desc()).all()
+    ds_ids = [ds.id for ds in data_sources]
+    connector_map = {c.id: c for c in connectors}
 
-    source_counts: dict[int, int] = {}
-    if dataset_ids:
-        rows = (
-            db.query(DataSource.dataset_id, func.count(DataSource.id))
-            .filter(DataSource.dataset_id.in_(dataset_ids))
-            .group_by(DataSource.dataset_id)
-            .all()
-        )
-        source_counts = {r[0]: r[1] for r in rows}
-
-    # Latest run per dataset (status + completed_at)
+    # Latest run per data source
     latest_runs: dict[int, tuple[str, object]] = {}
-    if dataset_ids:
+    if ds_ids:
         subq = (
             db.query(
-                PipelineRun.dataset_id,
+                PipelineRun.data_source_id,
                 func.max(PipelineRun.id).label("max_id"),
             )
-            .filter(PipelineRun.dataset_id.in_(dataset_ids))
-            .group_by(PipelineRun.dataset_id)
+            .filter(PipelineRun.data_source_id.in_(ds_ids))
+            .group_by(PipelineRun.data_source_id)
             .subquery()
         )
         rows = (
-            db.query(PipelineRun.dataset_id, PipelineRun.status, PipelineRun.completed_at)
+            db.query(PipelineRun.data_source_id, PipelineRun.status, PipelineRun.completed_at)
             .join(subq, PipelineRun.id == subq.c.max_id)
             .all()
         )
         latest_runs = {r[0]: (r[1], r[2]) for r in rows}
 
-    # Rule counts per dataset
-    rule_counts: dict[int, int] = {}
-    if dataset_ids:
+    # Rule counts per dataset_type
+    rule_counts_by_type: dict[str, int] = {}
+    if data_sources:
         rows = (
-            db.query(LabelRule.dataset_id, func.count(LabelRule.id))
-            .filter(LabelRule.dataset_id.in_(dataset_ids))
-            .group_by(LabelRule.dataset_id)
+            db.query(LabelRule.dataset_type, func.count(LabelRule.id))
+            .group_by(LabelRule.dataset_type)
             .all()
         )
-        rule_counts = {r[0]: r[1] for r in rows}
+        rule_counts_by_type = {r[0]: r[1] for r in rows}
 
-    dataset_summaries = []
-    for d in datasets:
-        lr = latest_runs.get(d.id)
-        dataset_summaries.append(
-            DatasetSummary(
-                id=d.id,
-                name=d.name,
-                type=d.type,
-                source_count=source_counts.get(d.id, 0),
+    ds_summaries = []
+    for ds in data_sources:
+        lr = latest_runs.get(ds.id)
+        conn = connector_map.get(ds.connector_id)
+        ds_summaries.append(
+            DataSourceSummary(
+                id=ds.id,
+                name=ds.name,
+                dataset_type=ds.dataset_type,
+                connector_name=conn.name if conn else "",
                 latest_run_status=lr[0] if lr else None,
                 latest_run_at=lr[1] if lr else None,
-                rule_count=rule_counts.get(d.id, 0),
+                rule_count=rule_counts_by_type.get(ds.dataset_type, 0),
             )
         )
 
@@ -118,14 +108,14 @@ def get_dashboard(
 
     # --- Label stats ---
     total_label_rules = db.query(func.count(LabelRule.id)).scalar() or 0
-    datasets_with_rules = (
-        db.query(func.count(func.distinct(LabelRule.dataset_id))).scalar() or 0
+    types_with_rules = (
+        db.query(func.count(func.distinct(LabelRule.dataset_type))).scalar() or 0
     )
 
     # --- Recent runs ---
     recent_run_rows = (
-        db.query(PipelineRun, Dataset.name)
-        .join(Dataset, PipelineRun.dataset_id == Dataset.id)
+        db.query(PipelineRun, DataSource.name)
+        .join(DataSource, PipelineRun.data_source_id == DataSource.id)
         .order_by(PipelineRun.created_at.desc())
         .limit(10)
         .all()
@@ -133,14 +123,14 @@ def get_dashboard(
     recent_runs = [
         RecentRunItem(
             id=run.id,
-            dataset_id=run.dataset_id,
-            dataset_name=dataset_name,
+            data_source_id=run.data_source_id,
+            data_source_name=ds_name,
             status=run.status,
             rows_processed=run.rows_processed,
             completed_at=run.completed_at,
             created_at=run.created_at,
         )
-        for run, dataset_name in recent_run_rows
+        for run, ds_name in recent_run_rows
     ]
 
     return DashboardResponse(
@@ -149,14 +139,14 @@ def get_dashboard(
         connectors_failing=connectors_failing,
         connectors_syncing=connectors_syncing,
         latest_sync=latest_sync,
-        dataset_count=len(datasets),
+        data_source_count=len(data_sources),
         total_runs=run_stats[0],
         runs_succeeded=run_stats[1],
         runs_failed=run_stats[2],
         total_rows_processed=run_stats[3],
         total_label_rules=total_label_rules,
-        datasets_with_rules=datasets_with_rules,
+        types_with_rules=types_with_rules,
         connectors=connector_summaries,
-        datasets=dataset_summaries,
+        data_sources=ds_summaries,
         recent_runs=recent_runs,
     )

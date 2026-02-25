@@ -32,9 +32,8 @@ interface ColumnStats {
 }
 
 interface ColumnStatsResponse {
-  dataset_id: number;
-  dataset_name: string;
   dataset_type: string;
+  dataset_type_name: string;
   total_rows: number | null;
   columns: ColumnStats[];
 }
@@ -54,7 +53,7 @@ interface AutoLabelAllResponse {
 
 function ColumnOverview() {
   const params = useParams();
-  const datasetId = params.datasetId as string;
+  const datasetType = params.datasetType as string;
   const [data, setData] = useState<ColumnStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [autoFilling, setAutoFilling] = useState(false);
@@ -63,13 +62,13 @@ function ColumnOverview() {
     useState<AutoLabelAllResponse | null>(null);
 
   const loadColumns = () =>
-    api(`/api/labels/datasets/${datasetId}/columns`)
+    api(`/api/labels/types/${datasetType}/columns`)
       .then((r) => r.json())
       .then(setData);
 
   useEffect(() => {
     loadColumns().finally(() => setLoading(false));
-  }, [datasetId]);
+  }, [datasetType]);
 
   const hasAiRules =
     data?.columns.some((c) => c.ai_rule_count > 0) ?? false;
@@ -79,7 +78,7 @@ function ColumnOverview() {
     setAutoFillResult(null);
     try {
       const res = await api(
-        `/api/labels/datasets/${datasetId}/auto-label`,
+        `/api/labels/types/${datasetType}/auto-label`,
         { method: "POST" }
       );
       if (!res.ok) throw new Error("Auto-label failed");
@@ -97,7 +96,7 @@ function ColumnOverview() {
     setUndoing(true);
     setAutoFillResult(null);
     try {
-      await api(`/api/labels/datasets/${datasetId}/auto-label`, {
+      await api(`/api/labels/types/${datasetType}/auto-label`, {
         method: "DELETE",
       });
       await loadColumns();
@@ -111,7 +110,7 @@ function ColumnOverview() {
   }
 
   if (!data) {
-    return <p className="text-red-600">Failed to load data source.</p>;
+    return <p className="text-red-600">Failed to load dataset type.</p>;
   }
 
   const hasBqData = data.total_rows !== null;
@@ -129,7 +128,7 @@ function ColumnOverview() {
 
       <div className="flex items-center gap-3 mb-2">
         <h1 className="text-2xl font-bold text-[var(--primary)]">
-          {data.dataset_name}
+          {data.dataset_type_name}
         </h1>
         <Badge variant="secondary">{data.dataset_type}</Badge>
       </div>
@@ -195,7 +194,7 @@ function ColumnOverview() {
 
       {data.columns.length === 0 ? (
         <p className="text-[var(--muted-foreground)]">
-          No string columns found in this data source type.
+          No string columns found in this dataset type.
         </p>
       ) : (
         <Card>
@@ -228,7 +227,7 @@ function ColumnOverview() {
                     <TableRow key={col.column_name}>
                       <TableCell>
                         <Link
-                          href={`/labels/${datasetId}/${col.column_name}`}
+                          href={`/labels/${datasetType}/${col.column_name}`}
                           className="text-[var(--primary)] hover:underline font-medium font-mono text-sm"
                         >
                           {col.column_name}

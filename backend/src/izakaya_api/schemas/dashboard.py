@@ -17,11 +17,11 @@ class ConnectorSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class DatasetSummary(BaseModel):
+class DataSourceSummary(BaseModel):
     id: int
     name: str
-    type: str
-    source_count: int
+    dataset_type: str
+    connector_name: str
     latest_run_status: str | None = None
     latest_run_at: datetime | None = None
     rule_count: int
@@ -29,8 +29,8 @@ class DatasetSummary(BaseModel):
 
 class RecentRunItem(BaseModel):
     id: int
-    dataset_id: int
-    dataset_name: str
+    data_source_id: int
+    data_source_name: str
     status: str
     rows_processed: int
     completed_at: datetime | None = None
@@ -44,7 +44,7 @@ class DashboardResponse(BaseModel):
     connectors_syncing: int
     latest_sync: datetime | None = None
 
-    dataset_count: int
+    data_source_count: int
 
     total_runs: int
     runs_succeeded: int
@@ -52,8 +52,8 @@ class DashboardResponse(BaseModel):
     total_rows_processed: int
 
     total_label_rules: int
-    datasets_with_rules: int
+    types_with_rules: int
 
     connectors: list[ConnectorSummary]
-    datasets: list[DatasetSummary]
+    data_sources: list[DataSourceSummary]
     recent_runs: list[RecentRunItem]

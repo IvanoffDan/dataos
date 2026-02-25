@@ -4,13 +4,23 @@ from pydantic import BaseModel
 
 
 class DataSourceCreate(BaseModel):
+    name: str
+    description: str = ""
+    dataset_type: str
     connector_id: int
     bq_table: str
 
 
+class DataSourceUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
 class DataSourceResponse(BaseModel):
     id: int
-    dataset_id: int
+    name: str
+    description: str
+    dataset_type: str
     connector_id: int
     bq_table: str
     status: str

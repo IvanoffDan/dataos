@@ -117,7 +117,7 @@ function ReleasesPage() {
                   <TableHead className="w-10"></TableHead>
                   <TableHead>Version</TableHead>
                   <TableHead>Name</TableHead>
-                  <TableHead>Datasets</TableHead>
+                  <TableHead>Data Sources</TableHead>
                   <TableHead>Total Rows</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead></TableHead>
@@ -146,7 +146,7 @@ function ReleasesPage() {
                         {r.name}
                       </Link>
                     </TableCell>
-                    <TableCell>{r.dataset_count}</TableCell>
+                    <TableCell>{r.data_source_count}</TableCell>
                     <TableCell>{r.total_rows.toLocaleString()}</TableCell>
                     <TableCell className="text-[var(--muted-foreground)]">
                       {new Date(r.created_at).toLocaleDateString()}

@@ -9,8 +9,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -33,7 +31,7 @@ interface DistinctValue {
 
 interface StaleRule {
   id: number;
-  dataset_id: number;
+  dataset_type: string;
   column_name: string;
   match_value: string;
   replace_value: string;
@@ -49,7 +47,7 @@ interface AutoLabelResponse {
 }
 
 interface ColumnValuesResponse {
-  dataset_id: number;
+  dataset_type: string;
   column_name: string;
   column_description: string;
   total_rows: number | null;
@@ -62,7 +60,7 @@ interface ColumnValuesResponse {
 
 function ColumnEditor() {
   const params = useParams();
-  const datasetId = params.datasetId as string;
+  const datasetType = params.datasetType as string;
   const column = params.column as string;
 
   const [data, setData] = useState<ColumnValuesResponse | null>(null);
@@ -81,7 +79,7 @@ function ColumnEditor() {
 
   const loadData = useCallback(() => {
     setLoading(true);
-    api(`/api/labels/datasets/${datasetId}/columns/${column}/values`)
+    api(`/api/labels/types/${datasetType}/columns/${column}/values`)
       .then((r) => r.json())
       .then((d: ColumnValuesResponse) => {
         setData(d);
@@ -97,7 +95,7 @@ function ColumnEditor() {
         setKeptStaleRules(new Set(d.stale_rules.map((r) => r.id)));
       })
       .finally(() => setLoading(false));
-  }, [datasetId, column]);
+  }, [datasetType, column]);
 
   useEffect(() => {
     loadData();
@@ -138,7 +136,7 @@ function ColumnEditor() {
 
     try {
       const res = await api(
-        `/api/labels/datasets/${datasetId}/columns/${column}/rules`,
+        `/api/labels/types/${datasetType}/columns/${column}/rules`,
         {
           method: "PUT",
           body: JSON.stringify({ rules }),
@@ -149,7 +147,6 @@ function ColumnEditor() {
         throw new Error(err.detail || "Save failed");
       }
       setSaveMsg(`Saved ${rules.length} rule${rules.length !== 1 ? "s" : ""}`);
-      // Reload to refresh stale rules
       loadData();
     } catch (err) {
       setSaveMsg(
@@ -165,7 +162,7 @@ function ColumnEditor() {
     setAutoFillMsg("");
     try {
       const res = await api(
-        `/api/labels/datasets/${datasetId}/columns/${column}/auto-label`,
+        `/api/labels/types/${datasetType}/columns/${column}/auto-label`,
         { method: "POST" }
       );
       if (!res.ok) {
@@ -191,7 +188,7 @@ function ColumnEditor() {
     setAutoFillMsg("");
     try {
       const res = await api(
-        `/api/labels/datasets/${datasetId}/columns/${column}/auto-label`,
+        `/api/labels/types/${datasetType}/columns/${column}/auto-label`,
         { method: "DELETE" }
       );
       if (!res.ok) {
@@ -236,7 +233,7 @@ function ColumnEditor() {
     <div>
       <div className="mb-4">
         <Link
-          href={`/labels/${datasetId}`}
+          href={`/labels/${datasetType}`}
           className="text-[var(--primary)] hover:underline text-sm"
         >
           &larr; Back to Columns
