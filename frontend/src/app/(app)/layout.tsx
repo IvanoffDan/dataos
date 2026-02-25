@@ -2,9 +2,10 @@
 
 import { Nav } from "@/components/nav";
 import { AuthGuard } from "@/components/auth-guard";
+import { Providers } from "@/components/providers";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return (
+const AppLayout = ({ children }: { children: React.ReactNode }) => (
+  <Providers>
     <AuthGuard>
       <div className="flex min-h-screen">
         <Nav />
@@ -13,5 +14,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </main>
       </div>
     </AuthGuard>
-  );
-}
+  </Providers>
+);
+
+export default AppLayout;

@@ -22,13 +22,13 @@ interface EditDialogProps {
   loading?: boolean;
 }
 
-function EditForm({
+const EditForm = ({
   onSave,
   onCancel,
   label,
   defaultValue,
   loading = false,
-}: Omit<EditDialogProps, "open" | "title">) {
+}: Omit<EditDialogProps, "open" | "title">) => {
   const [value, setValue] = useState(defaultValue);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -62,9 +62,9 @@ function EditForm({
       </DialogFooter>
     </form>
   );
-}
+};
 
-export function EditDialog({
+export const EditDialog = ({
   open,
   onSave,
   onCancel,
@@ -72,23 +72,21 @@ export function EditDialog({
   label,
   defaultValue,
   loading = false,
-}: EditDialogProps) {
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        {open && (
-          <EditForm
-            onSave={onSave}
-            onCancel={onCancel}
-            label={label}
-            defaultValue={defaultValue}
-            loading={loading}
-          />
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
+}: EditDialogProps) => (
+  <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+      </DialogHeader>
+      {open && (
+        <EditForm
+          onSave={onSave}
+          onCancel={onCancel}
+          label={label}
+          defaultValue={defaultValue}
+          loading={loading}
+        />
+      )}
+    </DialogContent>
+  </Dialog>
+);

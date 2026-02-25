@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
-export function AuthGuard({ children }: { children: ReactNode }) {
+export const AuthGuard = ({ children }: { children: ReactNode }) => {
   const router = useRouter();
   const [checked, setChecked] = useState(false);
 
@@ -19,6 +19,13 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       });
   }, [router]);
 
-  if (!checked) return null;
+  if (!checked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--primary)] border-t-transparent" />
+      </div>
+    );
+  }
+
   return <>{children}</>;
-}
+};

@@ -12,7 +12,7 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { TimeSeriesPoint } from "@/lib/explore-api";
+import type { TimeSeriesPoint } from "@/types";
 
 const COLORS = [
   "#2563eb",

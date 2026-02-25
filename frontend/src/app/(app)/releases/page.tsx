@@ -1,20 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import {
-  fetchReleases,
-  createRelease,
-  ReleaseListItem,
-} from "@/lib/releases-api";
+import { useReleases, useCreateRelease } from "@/hooks/use-releases";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -31,48 +22,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { ErrorBanner } from "@/components/shared/error-banner";
 
-function ReleasesPage() {
-  const [releases, setReleases] = useState<ReleaseListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+const ReleasesPage = () => {
+  const { data: releases = [], isLoading, error } = useReleases();
+  const createMutation = useCreateRelease();
 
-  // Create release dialog
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [creating, setCreating] = useState(false);
-
-  // Compare selection
   const [compareIds, setCompareIds] = useState<number[]>([]);
 
-  const loadReleases = () => {
-    setLoading(true);
-    fetchReleases()
-      .then(setReleases)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    loadReleases();
-  }, []);
-
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (!name.trim()) return;
-    setCreating(true);
-    setError("");
-    try {
-      await createRelease({ name: name.trim(), description: description.trim() || undefined });
-      setCreateOpen(false);
-      setName("");
-      setDescription("");
-      loadReleases();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create release");
-    } finally {
-      setCreating(false);
-    }
+    createMutation.mutate(
+      { name: name.trim(), description: description.trim() || undefined },
+      {
+        onSuccess: () => {
+          setCreateOpen(false);
+          setName("");
+          setDescription("");
+        },
+      }
+    );
   };
 
   const toggleCompare = (id: number) => {
@@ -80,6 +52,8 @@ function ReleasesPage() {
       prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 2 ? [...prev, id] : prev
     );
   };
+
+  if (error) return <ErrorBanner message={error.message} />;
 
   return (
     <div>
@@ -97,14 +71,12 @@ function ReleasesPage() {
         </div>
       </div>
 
-      {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
-
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">All Releases</CardTitle>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {isLoading ? (
             <p className="text-[var(--muted-foreground)] text-sm">Loading...</p>
           ) : releases.length === 0 ? (
             <p className="text-[var(--muted-foreground)] text-sm">
@@ -139,10 +111,7 @@ function ReleasesPage() {
                       <Badge variant="secondary">v{r.version}</Badge>
                     </TableCell>
                     <TableCell className="font-medium">
-                      <Link
-                        href={`/releases/${r.id}`}
-                        className="text-[var(--primary)] hover:underline"
-                      >
+                      <Link href={`/releases/${r.id}`} className="text-[var(--primary)] hover:underline">
                         {r.name}
                       </Link>
                     </TableCell>
@@ -164,7 +133,6 @@ function ReleasesPage() {
         </CardContent>
       </Card>
 
-      {/* Create Release Dialog */}
       <Dialog open={createOpen} onOpenChange={(v) => !v && setCreateOpen(false)}>
         <DialogContent>
           <DialogHeader>
@@ -192,19 +160,18 @@ function ReleasesPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={createMutation.isPending}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} disabled={!name.trim() || creating}>
-              {creating ? "Creating..." : "Create Release"}
+            <Button onClick={handleCreate} disabled={!name.trim() || createMutation.isPending}>
+              {createMutation.isPending ? "Creating..." : "Create Release"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
-}
+};
 
-export default function ReleasesListPage() {
-  return <ReleasesPage />;
-}
+const ReleasesListPage = () => <ReleasesPage />;
+export default ReleasesListPage;

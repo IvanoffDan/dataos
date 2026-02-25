@@ -1,6 +1,6 @@
 "use client";
 
-import { MetricDef } from "@/lib/explore-api";
+import type { MetricDef } from "@/types";
 
 interface MetricControlsProps {
   metrics: MetricDef[];

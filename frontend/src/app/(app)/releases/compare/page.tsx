@@ -1,16 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { compareReleases, ReleaseCompareResponse } from "@/lib/releases-api";
+import { useCompareReleases } from "@/hooks/use-releases";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -19,23 +13,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ErrorBanner } from "@/components/shared/error-banner";
 
-function ComparePage() {
+const ComparePage = () => {
   const searchParams = useSearchParams();
   const r1 = Number(searchParams.get("r1"));
   const r2 = Number(searchParams.get("r2"));
-  const [data, setData] = useState<ReleaseCompareResponse | null>(null);
-  const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!r1 || !r2) {
-      setError("Two release IDs are required (r1 and r2 query params)");
-      return;
-    }
-    compareReleases(r1, r2)
-      .then(setData)
-      .catch((e) => setError(e.message));
-  }, [r1, r2]);
+  const { data, isLoading, error } = useCompareReleases(r1, r2, !!r1 && !!r2);
+
+  if (!r1 || !r2) {
+    return (
+      <div>
+        <div className="mb-4">
+          <Link href="/releases" className="text-[var(--primary)] hover:underline text-sm">
+            &larr; Back to Releases
+          </Link>
+        </div>
+        <ErrorBanner message="Two release IDs are required (r1 and r2 query params)" />
+      </div>
+    );
+  }
 
   if (error) {
     return (
@@ -45,14 +43,12 @@ function ComparePage() {
             &larr; Back to Releases
           </Link>
         </div>
-        <p className="text-red-600">{error}</p>
+        <ErrorBanner message={error.message} />
       </div>
     );
   }
 
-  if (!data) {
-    return <p className="text-[var(--muted-foreground)]">Loading...</p>;
-  }
+  if (isLoading || !data) return <p className="text-[var(--muted-foreground)]">Loading...</p>;
 
   return (
     <div>
@@ -62,11 +58,8 @@ function ComparePage() {
         </Link>
       </div>
 
-      <h1 className="text-2xl font-bold text-[var(--primary)] mb-6">
-        Compare Releases
-      </h1>
+      <h1 className="text-2xl font-bold text-[var(--primary)] mb-6">Compare Releases</h1>
 
-      {/* Release headers */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         <Card>
           <CardContent className="pt-4">
@@ -96,7 +89,6 @@ function ComparePage() {
         </Card>
       </div>
 
-      {/* Diff table */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Per-Data Source Comparison</CardTitle>
@@ -107,67 +99,43 @@ function ComparePage() {
               <TableRow>
                 <TableHead>Data Source</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead className="text-center">
-                  v{data.r1.version} Version
-                </TableHead>
-                <TableHead className="text-center">
-                  v{data.r1.version} Rows
-                </TableHead>
-                <TableHead className="text-center">
-                  v{data.r2.version} Version
-                </TableHead>
-                <TableHead className="text-center">
-                  v{data.r2.version} Rows
-                </TableHead>
+                <TableHead className="text-center">v{data.r1.version} Version</TableHead>
+                <TableHead className="text-center">v{data.r1.version} Rows</TableHead>
+                <TableHead className="text-center">v{data.r2.version} Version</TableHead>
+                <TableHead className="text-center">v{data.r2.version} Rows</TableHead>
                 <TableHead className="text-center">Row Change</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.diffs.map((d) => {
                 const rowDiff =
-                  d.r1_rows != null && d.r2_rows != null
-                    ? d.r2_rows - d.r1_rows
-                    : null;
+                  d.r1_rows != null && d.r2_rows != null ? d.r2_rows - d.r1_rows : null;
                 return (
                   <TableRow key={d.data_source_id}>
-                    <TableCell className="font-medium">
-                      {d.data_source_name}
-                    </TableCell>
+                    <TableCell className="font-medium">{d.data_source_name}</TableCell>
                     <TableCell>
                       <Badge variant="secondary">{d.dataset_type}</Badge>
                     </TableCell>
                     <TableCell className="text-center">
-                      {d.r1_version != null ? `v${d.r1_version}` : "—"}
+                      {d.r1_version != null ? `v${d.r1_version}` : "\u2014"}
                     </TableCell>
                     <TableCell className="text-center">
-                      {d.r1_rows != null
-                        ? d.r1_rows.toLocaleString()
-                        : "—"}
+                      {d.r1_rows != null ? d.r1_rows.toLocaleString() : "\u2014"}
                     </TableCell>
                     <TableCell className="text-center">
-                      {d.r2_version != null ? `v${d.r2_version}` : "—"}
+                      {d.r2_version != null ? `v${d.r2_version}` : "\u2014"}
                     </TableCell>
                     <TableCell className="text-center">
-                      {d.r2_rows != null
-                        ? d.r2_rows.toLocaleString()
-                        : "—"}
+                      {d.r2_rows != null ? d.r2_rows.toLocaleString() : "\u2014"}
                     </TableCell>
                     <TableCell className="text-center">
                       {rowDiff != null ? (
-                        <span
-                          className={
-                            rowDiff > 0
-                              ? "text-green-600"
-                              : rowDiff < 0
-                              ? "text-red-600"
-                              : ""
-                          }
-                        >
+                        <span className={rowDiff > 0 ? "text-green-600" : rowDiff < 0 ? "text-red-600" : ""}>
                           {rowDiff > 0 ? "+" : ""}
                           {rowDiff.toLocaleString()}
                         </span>
                       ) : (
-                        "—"
+                        "\u2014"
                       )}
                     </TableCell>
                   </TableRow>
@@ -179,8 +147,7 @@ function ComparePage() {
       </Card>
     </div>
   );
-}
+};
 
-export default function CompareReleasesPage() {
-  return <ComparePage />;
-}
+const CompareReleasesPage = () => <ComparePage />;
+export default CompareReleasesPage;

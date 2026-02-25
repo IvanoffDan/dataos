@@ -3,36 +3,21 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { useDatasetTypes } from "@/hooks/use-data-sources";
+import { fetchConnectorTables } from "@/lib/api/connectors";
+import { createDataSource } from "@/lib/api/data-sources";
+import type { BqTable, ConnectorOption } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { apiFetch } from "@/lib/api";
 
-interface DatasetType {
-  id: string;
-  name: string;
-  description: string;
-}
-
-interface Connector {
-  id: number;
-  name: string;
-  schema_name: string;
-  status: string;
-  requires_table_selection: boolean;
-  connector_category: string;
-}
-
-interface BqTable {
-  table_id: string;
-  full_id: string;
-}
-
-function CreateDataSource() {
+const CreateDataSource = () => {
   const router = useRouter();
-  const [types, setTypes] = useState<DatasetType[]>([]);
-  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const { data: types = [] } = useDatasetTypes();
+
+  const [connectors, setConnectors] = useState<ConnectorOption[]>([]);
   const [name, setName] = useState("");
   const [datasetType, setDatasetType] = useState("");
   const [description, setDescription] = useState("");
@@ -43,36 +28,26 @@ function CreateDataSource() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Auto-select first type when types load
   useEffect(() => {
-    api("/api/dataset-types")
-      .then((res) => res.json())
-      .then((data: DatasetType[]) => {
-        setTypes(data);
-        if (data.length > 0) setDatasetType(data[0].id);
-      });
-    api("/api/connectors")
-      .then((res) => res.json())
-      .then(setConnectors);
+    if (types.length > 0 && !datasetType) setDatasetType(types[0].id);
+  }, [types, datasetType]);
+
+  // Load connectors
+  useEffect(() => {
+    apiFetch<ConnectorOption[]>("/api/connectors").then(setConnectors).catch(() => {});
   }, []);
 
   const selectedConnectorObj = connectors.find((c) => c.id === selectedConnector);
   const needsTableSelection = selectedConnectorObj?.requires_table_selection !== false;
 
-  // Load BQ tables when connector is selected (only if table selection is needed)
   useEffect(() => {
     if (selectedConnector && needsTableSelection) {
       setLoadingTables(true);
       setBqTables([]);
       setSelectedTable("");
-      api(`/api/connectors/${selectedConnector}/tables`)
-        .then(async (r) => {
-          if (!r.ok) {
-            const data = await r.json().catch(() => ({}));
-            throw new Error(data.detail || "Failed to load tables");
-          }
-          return r.json();
-        })
-        .then((tables: BqTable[]) => {
+      fetchConnectorTables(selectedConnector)
+        .then((tables) => {
           setBqTables(Array.isArray(tables) ? tables : []);
           if (tables.length > 0) setSelectedTable(tables[0].table_id);
         })
@@ -82,7 +57,6 @@ function CreateDataSource() {
         })
         .finally(() => setLoadingTables(false));
     } else if (selectedConnector && !needsTableSelection) {
-      // Auto-managed table — clear table picker state
       setBqTables([]);
       setSelectedTable("");
     }
@@ -95,21 +69,13 @@ function CreateDataSource() {
     setSubmitting(true);
     setError("");
     try {
-      const res = await api("/api/data-sources", {
-        method: "POST",
-        body: JSON.stringify({
-          name: name.trim(),
-          dataset_type: datasetType,
-          description,
-          connector_id: selectedConnector,
-          ...(needsTableSelection ? { bq_table: selectedTable } : {}),
-        }),
+      const ds = await createDataSource({
+        name: name.trim(),
+        dataset_type: datasetType,
+        description,
+        connector_id: selectedConnector,
+        ...(needsTableSelection ? { bq_table: selectedTable } : {}),
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || "Failed to create data source");
-      }
-      const ds = await res.json();
       router.push(`/datasets/${ds.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -120,17 +86,12 @@ function CreateDataSource() {
   return (
     <div>
       <div className="mb-4">
-        <Link
-          href="/datasets"
-          className="text-[var(--primary)] hover:underline text-sm"
-        >
+        <Link href="/datasets" className="text-[var(--primary)] hover:underline text-sm">
           &larr; Back to Data Sources
         </Link>
       </div>
 
-      <h1 className="text-2xl font-bold text-[var(--primary)] mb-6">
-        Create Data Source
-      </h1>
+      <h1 className="text-2xl font-bold text-[var(--primary)] mb-6">Create Data Source</h1>
 
       <Card className="max-w-lg">
         <CardHeader>
@@ -159,9 +120,7 @@ function CreateDataSource() {
                 required
               >
                 {types.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
+                  <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
               {types.find((t) => t.id === datasetType) && (
@@ -195,9 +154,7 @@ function CreateDataSource() {
                 {connectors
                   .filter((c) => c.status === "connected")
                   .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
+                    <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
               </select>
             </div>
@@ -206,9 +163,7 @@ function CreateDataSource() {
               <div className="space-y-2">
                 <Label>BQ Table</Label>
                 {loadingTables ? (
-                  <p className="text-sm text-[var(--muted-foreground)]">
-                    Loading tables...
-                  </p>
+                  <p className="text-sm text-[var(--muted-foreground)]">Loading tables...</p>
                 ) : bqTables.length === 0 ? (
                   <p className="text-sm text-[var(--muted-foreground)]">
                     No tables found in this connector&apos;s schema.
@@ -220,9 +175,7 @@ function CreateDataSource() {
                     className="flex h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
                   >
                     {bqTables.map((t) => (
-                      <option key={t.table_id} value={t.table_id}>
-                        {t.table_id}
-                      </option>
+                      <option key={t.table_id} value={t.table_id}>{t.table_id}</option>
                     ))}
                   </select>
                 )}
@@ -250,8 +203,7 @@ function CreateDataSource() {
       </Card>
     </div>
   );
-}
+};
 
-export default function CreateDatasetPage() {
-  return <CreateDataSource />;
-}
+const CreateDatasetPage = () => <CreateDataSource />;
+export default CreateDatasetPage;

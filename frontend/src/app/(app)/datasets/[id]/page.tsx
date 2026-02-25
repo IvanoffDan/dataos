@@ -1,17 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
-import {
-  fetchKpiSummary,
-  fetchMetrics,
-  fetchTimeSeries,
-  KpiSummary,
-  MetricDef,
-  TimeSeriesPoint,
-} from "@/lib/explore-api";
+import { useDataSource, useUpdateDataSource, useDeleteDataSource } from "@/hooks/use-data-sources";
+import { useKpiSummary, useMetrics, useTimeSeries } from "@/hooks/use-explore";
+import { usePipelineRuns, useTriggerRun, useRunErrors } from "@/hooks/use-pipeline";
+import { sourceStatusVariant, runStatusVariant, formatMetricValue } from "@/lib/format";
 import { KpiCard } from "@/components/charts/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,8 +24,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ConfirmDialog } from "@/components/confirm-dialog";
-import { EditDialog } from "@/components/edit-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EditDialog } from "@/components/shared/edit-dialog";
+import { ErrorBanner } from "@/components/shared/error-banner";
+import { PageHeader } from "@/components/shared/page-header";
 import {
   Dialog,
   DialogContent,
@@ -47,225 +44,73 @@ import {
   CartesianGrid,
 } from "recharts";
 
-interface DataSource {
-  id: number;
-  name: string;
-  description: string;
-  dataset_type: string;
-  connector_id: number;
-  connector_name: string;
-  bq_table: string;
-  raw_table: string | null;
-  connector_category: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface PipelineRun {
-  id: number;
-  status: string;
-  started_at: string | null;
-  completed_at: string | null;
-  rows_processed: number;
-  rows_failed: number;
-  version: number | null;
-  error_summary: string | null;
-  created_at: string;
-}
-
-interface ValidationError {
-  id: number;
-  row_number: number;
-  column_name: string;
-  error_type: string;
-  error_message: string;
-  source_value: string | null;
-}
-
-function sourceStatusVariant(
-  status: string
-): "success" | "warning" | "error" | "secondary" {
-  switch (status) {
-    case "mapped":
-      return "success";
-    case "pending_mapping":
-      return "warning";
-    case "error":
-      return "error";
-    default:
-      return "secondary";
-  }
-}
-
-function runStatusVariant(
-  status: string
-): "success" | "warning" | "error" | "secondary" {
-  switch (status) {
-    case "success":
-      return "success";
-    case "pending":
-      return "warning";
-    case "running":
-      return "secondary";
-    case "failed":
-      return "error";
-    default:
-      return "secondary";
-  }
-}
-
-function DataSourceDetail() {
+const DataSourceDetail = () => {
   const params = useParams();
   const router = useRouter();
-  const [dataSource, setDataSource] = useState<DataSource | null>(null);
-  const [runs, setRuns] = useState<PipelineRun[]>([]);
-  const [error, setError] = useState("");
-
-  // Edit/delete
-  const [editOpen, setEditOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  // Run errors
-  const [errorsRunId, setErrorsRunId] = useState<number | null>(null);
-  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
-
-  // KPI & chart data
-  const [kpi, setKpi] = useState<KpiSummary | null>(null);
-  const [kpiLoading, setKpiLoading] = useState(true);
-  const [metrics, setMetrics] = useState<MetricDef[]>([]);
-  const [previewChart, setPreviewChart] = useState<TimeSeriesPoint[]>([]);
-
   const id = Number(params.id);
 
-  const loadData = useCallback(() => {
-    api(`/api/data-sources/${id}`)
-      .then((r) => r.json())
-      .then(setDataSource);
-    api(`/api/data-sources/${id}/runs`)
-      .then((r) => r.json())
-      .then(setRuns);
-    // Load KPI summary
-    setKpiLoading(true);
-    fetchKpiSummary(id)
-      .then(setKpi)
-      .finally(() => setKpiLoading(false));
-    fetchMetrics(id).then((m) => {
-      setMetrics(m);
-      const defaultMetric = m.find((x) => x.default) || m[0];
-      if (defaultMetric) {
-        fetchTimeSeries(id, {
-          metric_id: defaultMetric.id,
-          granularity: "weekly",
-        }).then(setPreviewChart);
-      }
-    });
-  }, [id]);
+  const { data: dataSource, isLoading, error } = useDataSource(id);
+  const { data: kpi, isLoading: kpiLoading } = useKpiSummary(id);
+  const { data: metrics = [] } = useMetrics(id);
+  const { data: runs = [] } = usePipelineRuns(id);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const defaultMetric = metrics.find((m) => m.default) || metrics[0];
+  const { data: previewChart = [] } = useTimeSeries(
+    id,
+    { metric_id: defaultMetric?.id ?? "", granularity: "weekly" },
+    !!defaultMetric
+  );
 
-  const handleSave = async (newName: string) => {
-    setSaving(true);
-    setError("");
-    try {
-      const res = await api(`/api/data-sources/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: newName }),
-      });
-      if (!res.ok) throw new Error((await res.json()).detail);
-      setDataSource(await res.json());
-      setEditOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setSaving(false);
-    }
-  };
+  const updateMutation = useUpdateDataSource(id);
+  const deleteMutation = useDeleteDataSource();
+  const triggerRun = useTriggerRun(id);
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      await api(`/api/data-sources/${id}`, { method: "DELETE" });
-      router.push("/datasets");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-      setDeleting(false);
-      setDeleteOpen(false);
-    }
-  };
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [errorsRunId, setErrorsRunId] = useState<number | null>(null);
 
-  const handleRunPipeline = async () => {
-    setError("");
-    try {
-      const res = await api(`/api/data-sources/${id}/run`, {
-        method: "POST",
-      });
-      if (!res.ok) throw new Error((await res.json()).detail);
-      loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    }
-  };
+  const { data: validationErrors = [] } = useRunErrors(errorsRunId);
 
-  const handleViewErrors = async (runId: number) => {
-    setErrorsRunId(runId);
-    const res = await api(`/api/pipeline/runs/${runId}/errors`);
-    setValidationErrors(await res.json());
-  };
-
-  if (!dataSource) {
+  if (error) return <ErrorBanner message={error.message} />;
+  if (isLoading || !dataSource) {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
   }
 
   return (
     <div>
-      <div className="mb-4">
-        <Link
-          href="/datasets"
-          className="text-[var(--primary)] hover:underline text-sm"
-        >
-          &larr; Back to Data Sources
-        </Link>
-      </div>
-
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-[var(--primary)]">
-            {dataSource.name}
-          </h1>
-          <Badge variant="secondary">{dataSource.dataset_type}</Badge>
-          <Badge variant={sourceStatusVariant(dataSource.status)}>
-            {dataSource.status}
-          </Badge>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setEditOpen(true)}
-          >
-            Edit
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button asChild variant="outline">
-            <Link href={`/datasets/${id}/mapping`}>Map Columns</Link>
-          </Button>
-          <Button variant="outline" onClick={handleRunPipeline}>
-            Run Pipeline
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => setDeleteOpen(true)}
-          >
-            Delete
-          </Button>
-        </div>
-      </div>
-
-      {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+      <PageHeader
+        backHref="/datasets"
+        backLabel="Back to Data Sources"
+        title={dataSource.name}
+        badges={
+          <>
+            <Badge variant="secondary">{dataSource.dataset_type}</Badge>
+            <Badge variant={sourceStatusVariant(dataSource.status)}>
+              {dataSource.status}
+            </Badge>
+            <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+          </>
+        }
+        actions={
+          <>
+            <Button asChild variant="outline">
+              <Link href={`/datasets/${id}/mapping`}>Map Columns</Link>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => triggerRun.mutate()}
+              disabled={triggerRun.isPending}
+            >
+              {triggerRun.isPending ? "Running..." : "Run Pipeline"}
+            </Button>
+            <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+              Delete
+            </Button>
+          </>
+        }
+      />
 
       {dataSource.description && (
         <p className="text-[var(--muted-foreground)] text-sm mb-4">
@@ -291,15 +136,15 @@ function DataSourceDetail() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <KpiCard
           label="Total Rows"
-          value={kpi ? kpi.total_rows.toLocaleString() : "—"}
+          value={kpi ? kpi.total_rows.toLocaleString() : "\u2014"}
           loading={kpiLoading}
         />
         <KpiCard
           label="Date Range"
           value={
             kpi?.min_date && kpi?.max_date
-              ? `${kpi.min_date} — ${kpi.max_date}`
-              : "—"
+              ? `${kpi.min_date} \u2014 ${kpi.max_date}`
+              : "\u2014"
           }
           loading={kpiLoading}
         />
@@ -309,10 +154,8 @@ function DataSourceDetail() {
             label={m.name}
             value={
               kpi?.metrics[m.id] !== undefined
-                ? m.format_type === "currency"
-                  ? `$${kpi.metrics[m.id].toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-                  : kpi.metrics[m.id].toLocaleString()
-                : "—"
+                ? formatMetricValue(kpi.metrics[m.id], m.format_type)
+                : "\u2014"
             }
             loading={kpiLoading}
           />
@@ -324,7 +167,7 @@ function DataSourceDetail() {
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">
-              {metrics.find((m) => m.default)?.name || metrics[0]?.name} (Weekly)
+              {defaultMetric?.name} (Weekly)
             </CardTitle>
             <Link
               href={`/review/${id}`}
@@ -370,9 +213,7 @@ function DataSourceDetail() {
         </CardHeader>
         <CardContent>
           {runs.length === 0 ? (
-            <p className="text-[var(--muted-foreground)] text-sm">
-              No pipeline runs yet.
-            </p>
+            <p className="text-[var(--muted-foreground)] text-sm">No pipeline runs yet.</p>
           ) : (
             <Table>
               <TableHeader>
@@ -389,9 +230,7 @@ function DataSourceDetail() {
                 {runs.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>
-                      <Badge variant={runStatusVariant(r.status)}>
-                        {r.status}
-                      </Badge>
+                      <Badge variant={runStatusVariant(r.status)}>{r.status}</Badge>
                     </TableCell>
                     <TableCell>
                       {r.version != null ? (
@@ -401,9 +240,7 @@ function DataSourceDetail() {
                       )}
                     </TableCell>
                     <TableCell className="text-[var(--muted-foreground)]">
-                      {r.started_at
-                        ? new Date(r.started_at).toLocaleString()
-                        : "\u2014"}
+                      {r.started_at ? new Date(r.started_at).toLocaleString() : "\u2014"}
                     </TableCell>
                     <TableCell>{r.rows_processed}</TableCell>
                     <TableCell>
@@ -418,7 +255,7 @@ function DataSourceDetail() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleViewErrors(r.id)}
+                          onClick={() => setErrorsRunId(r.id)}
                         >
                           View Errors
                         </Button>
@@ -433,18 +270,13 @@ function DataSourceDetail() {
       </Card>
 
       {/* Validation Errors Dialog */}
-      <Dialog
-        open={errorsRunId !== null}
-        onOpenChange={(v) => !v && setErrorsRunId(null)}
-      >
+      <Dialog open={errorsRunId !== null} onOpenChange={(v) => !v && setErrorsRunId(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Validation Errors</DialogTitle>
           </DialogHeader>
           {validationErrors.length === 0 ? (
-            <p className="text-[var(--muted-foreground)] text-sm">
-              No errors found.
-            </p>
+            <p className="text-[var(--muted-foreground)] text-sm">No errors found.</p>
           ) : (
             <Table>
               <TableHeader>
@@ -459,12 +291,8 @@ function DataSourceDetail() {
                 {validationErrors.map((e) => (
                   <TableRow key={e.id}>
                     <TableCell>{e.row_number}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {e.column_name}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {e.error_message}
-                    </TableCell>
+                    <TableCell className="font-mono text-xs">{e.column_name}</TableCell>
+                    <TableCell className="text-sm">{e.error_message}</TableCell>
                     <TableCell className="font-mono text-xs text-[var(--muted-foreground)]">
                       {e.source_value ?? "\u2014"}
                     </TableCell>
@@ -476,31 +304,33 @@ function DataSourceDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit/Delete Dialogs */}
       <ConfirmDialog
         open={deleteOpen}
-        onConfirm={handleDelete}
+        onConfirm={() =>
+          deleteMutation.mutate(id, { onSuccess: () => router.push("/datasets") })
+        }
         onCancel={() => setDeleteOpen(false)}
         title="Delete Data Source"
         description={`Are you sure you want to delete "${dataSource.name}"? This will remove all mappings and pipeline runs.`}
         confirmLabel="Delete"
         variant="destructive"
-        loading={deleting}
+        loading={deleteMutation.isPending}
       />
 
       <EditDialog
         open={editOpen}
-        onSave={handleSave}
+        onSave={(newName) =>
+          updateMutation.mutate({ name: newName }, { onSuccess: () => setEditOpen(false) })
+        }
         onCancel={() => setEditOpen(false)}
         title="Rename Data Source"
         label="Data Source Name"
         defaultValue={dataSource.name}
-        loading={saving}
+        loading={updateMutation.isPending}
       />
     </div>
   );
-}
+};
 
-export default function DatasetDetailPage() {
-  return <DataSourceDetail />;
-}
+const DatasetDetailPage = () => <DataSourceDetail />;
+export default DatasetDetailPage;

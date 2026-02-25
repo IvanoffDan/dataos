@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { useDataSources } from "@/hooks/use-data-sources";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,27 +12,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ErrorBanner } from "@/components/shared/error-banner";
 
-interface DataSource {
-  id: number;
-  name: string;
-  dataset_type: string;
-  description: string;
-  connector_name: string;
-  bq_table: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-}
+const DataSourceList = () => {
+  const { data: dataSources = [], isLoading, error } = useDataSources();
 
-function DataSourceList() {
-  const [dataSources, setDataSources] = useState<DataSource[]>([]);
-
-  useEffect(() => {
-    api("/api/data-sources")
-      .then((res) => res.json())
-      .then(setDataSources);
-  }, []);
+  if (error) return <ErrorBanner message={error.message} />;
 
   return (
     <div>
@@ -48,10 +32,15 @@ function DataSourceList() {
           <Link href="/datasets/new">Create Data Source</Link>
         </Button>
       </div>
-      {dataSources.length === 0 ? (
-        <p className="text-[var(--muted-foreground)]">
-          No data sources created yet.
-        </p>
+
+      {isLoading ? (
+        <div className="space-y-3 animate-pulse">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-12 bg-gray-200 rounded" />
+          ))}
+        </div>
+      ) : dataSources.length === 0 ? (
+        <p className="text-[var(--muted-foreground)]">No data sources created yet.</p>
       ) : (
         <div className="rounded-lg border border-[var(--border)] bg-white">
           <Table>
@@ -95,8 +84,7 @@ function DataSourceList() {
       )}
     </div>
   );
-}
+};
 
-export default function DatasetsPage() {
-  return <DataSourceList />;
-}
+const DatasetsPage = () => <DataSourceList />;
+export default DatasetsPage;

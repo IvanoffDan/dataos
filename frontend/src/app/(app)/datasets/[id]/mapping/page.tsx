@@ -3,91 +3,47 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { useDataSource, useSourceColumns, useSaveMappings, useAutoMap } from "@/hooks/use-data-sources";
+import { fetchTargetColumns, fetchMappings } from "@/lib/api/data-sources";
+import type { ColumnDef, ExistingMapping, MappingEntry, AiSuggestion } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorBanner } from "@/components/shared/error-banner";
 
-interface ColumnDef {
-  name: string;
-  description: string;
-  data_type: string;
-  required: boolean;
-  max_length: number | null;
-  min_value: number | null;
-  format: string | null;
-}
-
-interface SourceColumn {
-  name: string;
-  type: string;
-}
-
-interface ExistingMapping {
-  source_column: string | null;
-  target_column: string;
-  static_value: string | null;
-}
-
-interface AiSuggestion {
-  confidence: number;
-  reasoning: string;
-}
-
-type MappingEntry =
-  | { type: "column"; value: string }
-  | { type: "static"; value: string };
-
-function MappingEditor() {
+const MappingEditor = () => {
   const params = useParams();
   const router = useRouter();
-  const dataSourceId = params.id as string;
+  const dataSourceId = Number(params.id);
+
+  const { data: dataSource } = useDataSource(dataSourceId);
+  const { data: sourceColumns = [] } = useSourceColumns(dataSourceId);
 
   const [targetColumns, setTargetColumns] = useState<ColumnDef[]>([]);
-  const [sourceColumns, setSourceColumns] = useState<SourceColumn[]>([]);
   const [mappings, setMappings] = useState<Record<string, MappingEntry>>({});
-  const [datasetType, setDatasetType] = useState("");
   const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
 
-  // AI auto-map state
-  const [autoMapping, setAutoMapping] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
-  const [autoMapError, setAutoMapError] = useState("");
 
+  const saveMutation = useSaveMappings(dataSourceId);
+  const autoMapMutation = useAutoMap(dataSourceId);
+
+  // Load target columns + existing mappings when data source loads
   useEffect(() => {
-    // Load data source to get dataset_type
-    api(`/api/data-sources/${dataSourceId}`)
-      .then((r) => r.json())
-      .then((ds) => {
-        setDatasetType(ds.dataset_type);
-        // Load target columns for this dataset type
-        return api(`/api/dataset-types/${ds.dataset_type}/columns`);
-      })
-      .then((r) => r.json())
-      .then(setTargetColumns);
-
-    // Load source columns
-    api(`/api/data-sources/${dataSourceId}/source-columns`)
-      .then((r) => r.json())
-      .then(setSourceColumns);
-
-    // Load existing mappings
-    api(`/api/data-sources/${dataSourceId}/mappings`)
-      .then((r) => r.json())
-      .then((existing: ExistingMapping[]) => {
-        const map: Record<string, MappingEntry> = {};
-        for (const m of existing) {
-          if (m.static_value != null) {
-            map[m.target_column] = { type: "static", value: m.static_value };
-          } else if (m.source_column) {
-            map[m.target_column] = { type: "column", value: m.source_column };
-          }
+    if (!dataSource) return;
+    fetchTargetColumns(dataSource.dataset_type).then(setTargetColumns);
+    fetchMappings(dataSourceId).then((existing: ExistingMapping[]) => {
+      const map: Record<string, MappingEntry> = {};
+      for (const m of existing) {
+        if (m.static_value != null) {
+          map[m.target_column] = { type: "static", value: m.static_value };
+        } else if (m.source_column) {
+          map[m.target_column] = { type: "column", value: m.source_column };
         }
-        setMappings(map);
-      });
-  }, [dataSourceId]);
+      }
+      setMappings(map);
+    });
+  }, [dataSource, dataSourceId]);
 
   const handleMappingChange = (targetCol: string, entry: MappingEntry | null) => {
     setMappings((prev) => {
@@ -105,7 +61,6 @@ function MappingEditor() {
       delete next[targetCol];
       return next;
     });
-    setSaved(false);
   };
 
   const handleModeToggle = (targetCol: string, mode: "column" | "static") => {
@@ -125,89 +80,59 @@ function MappingEditor() {
       delete next[targetCol];
       return next;
     });
-    setSaved(false);
   };
 
-  const handleAutoMap = async () => {
-    setAutoMapping(true);
-    setAutoMapError("");
-    try {
-      const res = await api(`/api/data-sources/${dataSourceId}/auto-map`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.detail || "Auto-map failed");
-      }
-      const data = await res.json();
-      const newSuggestions: Record<string, AiSuggestion> = {};
-      const newMappings: Record<string, MappingEntry> = {};
+  const handleAutoMap = () => {
+    autoMapMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        const newSuggestions: Record<string, AiSuggestion> = {};
+        const newMappings: Record<string, MappingEntry> = {};
 
-      for (const s of data.suggestions) {
-        const existing = mappings[s.target_column];
-        if (existing && existing.value !== "") continue;
+        for (const s of data.suggestions) {
+          const existing = mappings[s.target_column];
+          if (existing && existing.value !== "") continue;
 
-        if (s.source_column) {
-          newMappings[s.target_column] = { type: "column", value: s.source_column };
-          newSuggestions[s.target_column] = { confidence: s.confidence, reasoning: s.reasoning };
-        } else if (s.static_value) {
-          newMappings[s.target_column] = { type: "static", value: s.static_value };
-          newSuggestions[s.target_column] = { confidence: s.confidence, reasoning: s.reasoning };
+          if (s.source_column) {
+            newMappings[s.target_column] = { type: "column", value: s.source_column };
+            newSuggestions[s.target_column] = { confidence: s.confidence, reasoning: s.reasoning };
+          } else if (s.static_value) {
+            newMappings[s.target_column] = { type: "static", value: s.static_value };
+            newSuggestions[s.target_column] = { confidence: s.confidence, reasoning: s.reasoning };
+          }
         }
-      }
 
-      setMappings((prev) => ({ ...prev, ...newMappings }));
-      setAiSuggestions((prev) => ({ ...prev, ...newSuggestions }));
-      setSaved(false);
-    } catch (err) {
-      setAutoMapError(err instanceof Error ? err.message : "Auto-map failed");
-    } finally {
-      setAutoMapping(false);
-    }
+        setMappings((prev) => ({ ...prev, ...newMappings }));
+        setAiSuggestions((prev) => ({ ...prev, ...newSuggestions }));
+      },
+    });
   };
 
   const handleClearAiSuggestions = () => {
     const aiTargets = Object.keys(aiSuggestions);
     setMappings((prev) => {
       const next = { ...prev };
-      for (const col of aiTargets) {
-        delete next[col];
-      }
+      for (const col of aiTargets) delete next[col];
       return next;
     });
     setAiSuggestions({});
-    setSaved(false);
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    setError("");
-    setSaved(false);
-    try {
-      const mappingItems = Object.entries(mappings)
-        .filter(([, entry]) => entry.value !== "")
-        .map(([target_column, entry]) => ({
-          source_column: entry.type === "column" ? entry.value : "",
-          target_column,
-          static_value: entry.type === "static" ? entry.value : null,
-        }));
-      const res = await api(`/api/data-sources/${dataSourceId}/mappings`, {
-        method: "PUT",
-        body: JSON.stringify({ mappings: mappingItems }),
-      });
-      if (!res.ok) throw new Error((await res.json()).detail);
-      router.push(`/datasets/${dataSourceId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setSaving(false);
-    }
+  const handleSave = () => {
+    const mappingItems = Object.entries(mappings)
+      .filter(([, entry]) => entry.value !== "")
+      .map(([target_column, entry]) => ({
+        source_column: entry.type === "column" ? entry.value : "",
+        target_column,
+        static_value: entry.type === "static" ? entry.value : null,
+      }));
+    saveMutation.mutate(mappingItems, {
+      onSuccess: () => router.push(`/datasets/${dataSourceId}`),
+    });
   };
 
   const requiredUnmapped = targetColumns.filter(
     (c) => c.required && (!mappings[c.name] || mappings[c.name].value === "")
   );
-
   const hasAiSuggestions = Object.keys(aiSuggestions).length > 0;
 
   return (
@@ -222,9 +147,7 @@ function MappingEditor() {
       </div>
 
       <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-bold text-[var(--primary)]">
-          Column Mapping
-        </h1>
+        <h1 className="text-2xl font-bold text-[var(--primary)]">Column Mapping</h1>
         <div className="flex items-center gap-2">
           {hasAiSuggestions && (
             <Button variant="outline" onClick={handleClearAiSuggestions}>
@@ -234,22 +157,18 @@ function MappingEditor() {
           <Button
             variant="outline"
             onClick={handleAutoMap}
-            disabled={autoMapping}
+            disabled={autoMapMutation.isPending}
           >
-            {autoMapping ? "Auto-mapping..." : "Auto-map with AI"}
+            {autoMapMutation.isPending ? "Auto-mapping..." : "Auto-map with AI"}
           </Button>
         </div>
       </div>
       <p className="text-[var(--muted-foreground)] text-sm mb-6">
-        Map source columns to the target {datasetType} schema. Required columns
+        Map source columns to the target {dataSource?.dataset_type} schema. Required columns
         must be mapped. Use &ldquo;Static Value&rdquo; for columns that are constant across all rows.
       </p>
 
-      {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
-      {autoMapError && <p className="text-red-600 text-sm mb-4">{autoMapError}</p>}
-      {saved && (
-        <p className="text-green-600 text-sm mb-4">Mappings saved.</p>
-      )}
+      {error && <ErrorBanner message={error} />}
 
       <Card className="mb-6">
         <CardHeader>
@@ -280,20 +199,12 @@ function MappingEditor() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm font-mono">
-                        {col.name}
-                      </span>
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] px-1.5 py-0"
-                      >
+                      <span className="font-medium text-sm font-mono">{col.name}</span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                         {col.data_type}
                       </Badge>
                       {col.required && (
-                        <Badge
-                          variant="default"
-                          className="text-[10px] px-1.5 py-0"
-                        >
+                        <Badge variant="default" className="text-[10px] px-1.5 py-0">
                           required
                         </Badge>
                       )}
@@ -318,8 +229,7 @@ function MappingEditor() {
                       {col.description}
                       {col.format && ` (format: ${col.format})`}
                       {col.max_length && ` (max ${col.max_length} chars)`}
-                      {col.min_value !== null &&
-                        ` (min: ${col.min_value})`}
+                      {col.min_value !== null && ` (min: ${col.min_value})`}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -394,8 +304,8 @@ function MappingEditor() {
       </Card>
 
       <div className="flex items-center gap-4">
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Saving..." : "Save Mappings"}
+        <Button onClick={handleSave} disabled={saveMutation.isPending}>
+          {saveMutation.isPending ? "Saving..." : "Save Mappings"}
         </Button>
         {requiredUnmapped.length > 0 && (
           <p className="text-yellow-600 text-sm">
@@ -406,8 +316,7 @@ function MappingEditor() {
       </div>
     </div>
   );
-}
+};
 
-export default function MappingPage() {
-  return <MappingEditor />;
-}
+const MappingPage = () => <MappingEditor />;
+export default MappingPage;

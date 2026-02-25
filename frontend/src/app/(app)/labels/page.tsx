@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { useLabelSummary } from "@/hooks/use-labels";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -12,35 +11,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ErrorBanner } from "@/components/shared/error-banner";
 
-interface DatasetLabelSummary {
-  dataset_type: string;
-  dataset_type_name: string;
-  total_rules: number;
-  columns_with_rules: number;
-  total_string_columns: number;
-}
+const LabelsDashboard = () => {
+  const { data: summaries = [], isLoading, error } = useLabelSummary();
 
-function LabelsDashboard() {
-  const [summaries, setSummaries] = useState<DatasetLabelSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  if (error) return <ErrorBanner message={error.message} />;
 
-  useEffect(() => {
-    api("/api/labels/summary")
-      .then((r) => r.json())
-      .then(setSummaries)
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) {
+  if (isLoading) {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
   }
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6 text-[var(--primary)]">
-        Label Rules
-      </h1>
+      <h1 className="text-2xl font-bold mb-6 text-[var(--primary)]">Label Rules</h1>
 
       {summaries.length === 0 ? (
         <p className="text-[var(--muted-foreground)]">
@@ -60,9 +44,7 @@ function LabelsDashboard() {
             {summaries.map((s) => {
               const pct =
                 s.total_string_columns > 0
-                  ? Math.round(
-                      (s.columns_with_rules / s.total_string_columns) * 100
-                    )
+                  ? Math.round((s.columns_with_rules / s.total_string_columns) * 100)
                   : 0;
               return (
                 <TableRow key={s.dataset_type}>
@@ -87,9 +69,7 @@ function LabelsDashboard() {
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <span className="text-xs text-[var(--muted-foreground)]">
-                        {pct}%
-                      </span>
+                      <span className="text-xs text-[var(--muted-foreground)]">{pct}%</span>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -100,8 +80,7 @@ function LabelsDashboard() {
       )}
     </div>
   );
-}
+};
 
-export default function LabelsPage() {
-  return <LabelsDashboard />;
-}
+const LabelsPage = () => <LabelsDashboard />;
+export default LabelsPage;

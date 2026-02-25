@@ -1,61 +1,17 @@
-import { api } from "@/lib/api";
+import { api, jsonOrThrow } from "@/lib/api";
+import type { KpiSummary, MetricDef, TimeSeriesPoint, BreakdownItem, TableDataResponse, PreviewResponse } from "@/types";
 
-export interface KpiSummary {
-  total_rows: number;
-  min_date: string | null;
-  max_date: string | null;
-  metrics: Record<string, number>;
-}
-
-export interface MetricDef {
-  id: string;
-  name: string;
-  format_type: string;
-  default: boolean;
-}
-
-export interface TimeSeriesPoint {
-  period: string;
-  value: number;
-  group?: string;
-}
-
-export interface BreakdownItem {
-  dimension: string;
-  value: number;
-}
-
-export interface TableDataResponse {
-  rows: Record<string, unknown>[];
-  total_count: number;
-  columns: string[];
-}
-
-export interface PreviewResponse {
-  rows: Record<string, unknown>[];
-  total_count: number;
-  columns: string[];
-}
-
-async function jsonOrThrow<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed (${res.status})`);
-  }
-  return res.json();
-}
-
-export async function fetchKpiSummary(dataSourceId: number): Promise<KpiSummary> {
+export const fetchKpiSummary = async (dataSourceId: number): Promise<KpiSummary> => {
   const res = await api(`/api/explore/data-sources/${dataSourceId}/summary`);
   return jsonOrThrow(res);
-}
+};
 
-export async function fetchMetrics(dataSourceId: number): Promise<MetricDef[]> {
+export const fetchMetrics = async (dataSourceId: number): Promise<MetricDef[]> => {
   const res = await api(`/api/explore/data-sources/${dataSourceId}/metrics`);
   return jsonOrThrow(res);
-}
+};
 
-export async function fetchTimeSeries(
+export const fetchTimeSeries = async (
   dataSourceId: number,
   body: {
     metric_id: string;
@@ -64,15 +20,15 @@ export async function fetchTimeSeries(
     date_from?: string | null;
     date_to?: string | null;
   }
-): Promise<TimeSeriesPoint[]> {
+): Promise<TimeSeriesPoint[]> => {
   const res = await api(`/api/explore/data-sources/${dataSourceId}/time-series`, {
     method: "POST",
     body: JSON.stringify(body),
   });
   return jsonOrThrow(res);
-}
+};
 
-export async function fetchBreakdown(
+export const fetchBreakdown = async (
   dataSourceId: number,
   body: {
     metric_id: string;
@@ -81,15 +37,15 @@ export async function fetchBreakdown(
     date_to?: string | null;
     limit?: number;
   }
-): Promise<BreakdownItem[]> {
+): Promise<BreakdownItem[]> => {
   const res = await api(`/api/explore/data-sources/${dataSourceId}/breakdown`, {
     method: "POST",
     body: JSON.stringify(body),
   });
   return jsonOrThrow(res);
-}
+};
 
-export async function fetchTableData(
+export const fetchTableData = async (
   dataSourceId: number,
   params: {
     offset?: number;
@@ -97,7 +53,7 @@ export async function fetchTableData(
     sort_column?: string;
     sort_dir?: string;
   } = {}
-): Promise<TableDataResponse> {
+): Promise<TableDataResponse> => {
   const query = new URLSearchParams();
   if (params.offset !== undefined) query.set("offset", String(params.offset));
   if (params.limit !== undefined) query.set("limit", String(params.limit));
@@ -105,30 +61,26 @@ export async function fetchTableData(
   if (params.sort_dir) query.set("sort_dir", params.sort_dir);
   const res = await api(`/api/explore/data-sources/${dataSourceId}/data?${query}`);
   return jsonOrThrow(res);
-}
+};
 
-export async function fetchRawPreview(
+export const fetchRawPreview = async (
   dataSourceId: number,
   params: { offset?: number; limit?: number } = {}
-): Promise<PreviewResponse> {
+): Promise<PreviewResponse> => {
   const query = new URLSearchParams();
   if (params.offset !== undefined) query.set("offset", String(params.offset));
   if (params.limit !== undefined) query.set("limit", String(params.limit));
-  const res = await api(
-    `/api/explore/data-sources/${dataSourceId}/raw-preview?${query}`
-  );
+  const res = await api(`/api/explore/data-sources/${dataSourceId}/raw-preview?${query}`);
   return jsonOrThrow(res);
-}
+};
 
-export async function fetchMappedPreview(
+export const fetchMappedPreview = async (
   dataSourceId: number,
   params: { offset?: number; limit?: number } = {}
-): Promise<PreviewResponse> {
+): Promise<PreviewResponse> => {
   const query = new URLSearchParams();
   if (params.offset !== undefined) query.set("offset", String(params.offset));
   if (params.limit !== undefined) query.set("limit", String(params.limit));
-  const res = await api(
-    `/api/explore/data-sources/${dataSourceId}/mapped-preview?${query}`
-  );
+  const res = await api(`/api/explore/data-sources/${dataSourceId}/mapped-preview?${query}`);
   return jsonOrThrow(res);
-}
+};

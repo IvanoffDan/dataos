@@ -1,24 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import {
-  fetchRelease,
-  fetchReleaseSummary,
-  fetchReleaseData,
-  Release,
-  KpiSummary,
-  TableDataResponse,
-} from "@/lib/releases-api";
+import { useRelease, useReleaseSummary, useReleaseData } from "@/hooks/use-releases";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -28,50 +16,30 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { KpiCard } from "@/components/charts/kpi-card";
+import { ErrorBanner } from "@/components/shared/error-banner";
 
 const PAGE_SIZE = 50;
 
-function ReleaseDataSourceDetail() {
+const ReleaseDataSourceDetail = () => {
   const params = useParams();
   const releaseId = Number(params.id);
   const dataSourceId = Number(params.dataSourceId);
 
-  const [release, setRelease] = useState<Release | null>(null);
-  const [summary, setSummary] = useState<KpiSummary | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(true);
-  const [tableData, setTableData] = useState<TableDataResponse | null>(null);
+  const { data: release } = useRelease(releaseId);
+  const { data: summary, isLoading: summaryLoading } = useReleaseSummary(releaseId, dataSourceId);
+
   const [page, setPage] = useState(0);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [error, setError] = useState("");
+
+  const { data: tableData, error } = useReleaseData(releaseId, dataSourceId, {
+    offset: page * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    sort_column: sortColumn || undefined,
+    sort_dir: sortDir,
+  });
 
   const entry = release?.entries.find((e) => e.data_source_id === dataSourceId);
-
-  useEffect(() => {
-    fetchRelease(releaseId)
-      .then(setRelease)
-      .catch((e) => setError(e.message));
-    setSummaryLoading(true);
-    fetchReleaseSummary(releaseId, dataSourceId)
-      .then(setSummary)
-      .catch(() => {})
-      .finally(() => setSummaryLoading(false));
-  }, [releaseId, dataSourceId]);
-
-  const loadData = useCallback(() => {
-    fetchReleaseData(releaseId, dataSourceId, {
-      offset: page * PAGE_SIZE,
-      limit: PAGE_SIZE,
-      sort_column: sortColumn || undefined,
-      sort_dir: sortDir,
-    })
-      .then(setTableData)
-      .catch((e) => setError(e.message));
-  }, [releaseId, dataSourceId, page, sortColumn, sortDir]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
 
   const handleSort = (col: string) => {
     if (sortColumn === col) {
@@ -83,21 +51,14 @@ function ReleaseDataSourceDetail() {
     setPage(0);
   };
 
-  if (error) {
-    return <p className="text-red-600">{error}</p>;
-  }
+  if (error) return <ErrorBanner message={error.message} />;
 
-  const totalPages = tableData
-    ? Math.ceil(tableData.total_count / PAGE_SIZE)
-    : 0;
+  const totalPages = tableData ? Math.ceil(tableData.total_count / PAGE_SIZE) : 0;
 
   return (
     <div>
       <div className="mb-4">
-        <Link
-          href={`/releases/${releaseId}`}
-          className="text-[var(--primary)] hover:underline text-sm"
-        >
+        <Link href={`/releases/${releaseId}`} className="text-[var(--primary)] hover:underline text-sm">
           &larr; Back to Release
         </Link>
       </div>
@@ -113,25 +74,22 @@ function ReleaseDataSourceDetail() {
           </>
         )}
         {release && (
-          <span className="text-[var(--muted-foreground)] text-sm">
-            in {release.name}
-          </span>
+          <span className="text-[var(--muted-foreground)] text-sm">in {release.name}</span>
         )}
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <KpiCard
           label="Total Rows"
-          value={summary ? summary.total_rows.toLocaleString() : "—"}
+          value={summary ? summary.total_rows.toLocaleString() : "\u2014"}
           loading={summaryLoading}
         />
         <KpiCard
           label="Date Range"
           value={
             summary?.min_date && summary?.max_date
-              ? `${summary.min_date} — ${summary.max_date}`
-              : "—"
+              ? `${summary.min_date} \u2014 ${summary.max_date}`
+              : "\u2014"
           }
           loading={summaryLoading}
         />
@@ -139,16 +97,10 @@ function ReleaseDataSourceDetail() {
           Object.entries(summary.metrics)
             .slice(0, 2)
             .map(([key, val]) => (
-              <KpiCard
-                key={key}
-                label={key}
-                value={val.toLocaleString()}
-                loading={false}
-              />
+              <KpiCard key={key} label={key} value={val.toLocaleString()} loading={false} />
             ))}
       </div>
 
-      {/* Data Table */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">
@@ -162,13 +114,9 @@ function ReleaseDataSourceDetail() {
         </CardHeader>
         <CardContent>
           {!tableData ? (
-            <p className="text-[var(--muted-foreground)] text-sm">
-              Loading...
-            </p>
+            <p className="text-[var(--muted-foreground)] text-sm">Loading...</p>
           ) : tableData.rows.length === 0 ? (
-            <p className="text-[var(--muted-foreground)] text-sm">
-              No data available.
-            </p>
+            <p className="text-[var(--muted-foreground)] text-sm">No data available.</p>
           ) : (
             <>
               <div className="overflow-x-auto">
@@ -183,9 +131,7 @@ function ReleaseDataSourceDetail() {
                         >
                           {col}
                           {sortColumn === col && (
-                            <span className="ml-1">
-                              {sortDir === "asc" ? "\u2191" : "\u2193"}
-                            </span>
+                            <span className="ml-1">{sortDir === "asc" ? "\u2191" : "\u2193"}</span>
                           )}
                         </TableHead>
                       ))}
@@ -195,11 +141,8 @@ function ReleaseDataSourceDetail() {
                     {tableData.rows.map((row, i) => (
                       <TableRow key={i}>
                         {tableData.columns.map((col) => (
-                          <TableCell
-                            key={col}
-                            className="text-sm max-w-[200px] truncate"
-                          >
-                            {row[col] != null ? String(row[col]) : "—"}
+                          <TableCell key={col} className="text-sm max-w-[200px] truncate">
+                            {row[col] != null ? String(row[col]) : "\u2014"}
                           </TableCell>
                         ))}
                       </TableRow>
@@ -208,7 +151,6 @@ function ReleaseDataSourceDetail() {
                 </Table>
               </div>
 
-              {/* Pagination */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4">
                   <p className="text-sm text-[var(--muted-foreground)]">
@@ -240,8 +182,7 @@ function ReleaseDataSourceDetail() {
       </Card>
     </div>
   );
-}
+};
 
-export default function ReleaseDataSourcePage() {
-  return <ReleaseDataSourceDetail />;
-}
+const ReleaseDataSourcePage = () => <ReleaseDataSourceDetail />;
+export default ReleaseDataSourcePage;

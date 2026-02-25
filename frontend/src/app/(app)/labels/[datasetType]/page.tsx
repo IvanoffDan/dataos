@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { useColumnStats, useAutoLabelAll, useUndoAutoLabelAll } from "@/hooks/use-labels";
+import type { AutoLabelAllResponse } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,116 +21,45 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ErrorBanner } from "@/components/shared/error-banner";
 
-interface ColumnStats {
-  column_name: string;
-  description: string;
-  distinct_count: number | null;
-  rule_count: number;
-  ai_rule_count: number;
-  non_null_count: number | null;
-  total_rows: number | null;
-}
-
-interface ColumnStatsResponse {
-  dataset_type: string;
-  dataset_type_name: string;
-  total_rows: number | null;
-  columns: ColumnStats[];
-}
-
-interface AutoLabelColumnResult {
-  column_name: string;
-  suggestion_count: number;
-  skipped_count: number;
-  error: string | null;
-}
-
-interface AutoLabelAllResponse {
-  columns: AutoLabelColumnResult[];
-  total_suggestions: number;
-  total_skipped: number;
-}
-
-function ColumnOverview() {
+const ColumnOverview = () => {
   const params = useParams();
   const datasetType = params.datasetType as string;
-  const [data, setData] = useState<ColumnStatsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [autoFilling, setAutoFilling] = useState(false);
-  const [undoing, setUndoing] = useState(false);
-  const [autoFillResult, setAutoFillResult] =
-    useState<AutoLabelAllResponse | null>(null);
+  const { data, isLoading, error } = useColumnStats(datasetType);
+  const autoFillAll = useAutoLabelAll(datasetType);
+  const undoAll = useUndoAutoLabelAll(datasetType);
+  const [autoFillResult, setAutoFillResult] = useState<AutoLabelAllResponse | null>(null);
 
-  const loadColumns = () =>
-    api(`/api/labels/types/${datasetType}/columns`)
-      .then((r) => r.json())
-      .then(setData);
+  if (error) return <ErrorBanner message={error.message} />;
+  if (isLoading) return <p className="text-[var(--muted-foreground)]">Loading...</p>;
+  if (!data) return <ErrorBanner message="Failed to load dataset type." />;
 
-  useEffect(() => {
-    loadColumns().finally(() => setLoading(false));
-  }, [datasetType]);
-
-  const hasAiRules =
-    data?.columns.some((c) => c.ai_rule_count > 0) ?? false;
-
-  const handleAutoFillAll = async () => {
-    setAutoFilling(true);
-    setAutoFillResult(null);
-    try {
-      const res = await api(
-        `/api/labels/types/${datasetType}/auto-label`,
-        { method: "POST" }
-      );
-      if (!res.ok) throw new Error("Auto-label failed");
-      const result: AutoLabelAllResponse = await res.json();
-      setAutoFillResult(result);
-      await loadColumns();
-    } catch {
-      // error state handled by lack of result
-    } finally {
-      setAutoFilling(false);
-    }
-  };
-
-  const handleUndoAll = async () => {
-    setUndoing(true);
-    setAutoFillResult(null);
-    try {
-      await api(`/api/labels/types/${datasetType}/auto-label`, {
-        method: "DELETE",
-      });
-      await loadColumns();
-    } finally {
-      setUndoing(false);
-    }
-  };
-
-  if (loading) {
-    return <p className="text-[var(--muted-foreground)]">Loading...</p>;
-  }
-
-  if (!data) {
-    return <p className="text-red-600">Failed to load dataset type.</p>;
-  }
-
+  const hasAiRules = data.columns.some((c) => c.ai_rule_count > 0);
   const hasBqData = data.total_rows !== null;
+
+  const handleAutoFillAll = () => {
+    setAutoFillResult(null);
+    autoFillAll.mutate(undefined, {
+      onSuccess: (result) => setAutoFillResult(result),
+    });
+  };
+
+  const handleUndoAll = () => {
+    setAutoFillResult(null);
+    undoAll.mutate();
+  };
 
   return (
     <div>
       <div className="mb-4">
-        <Link
-          href="/labels"
-          className="text-[var(--primary)] hover:underline text-sm"
-        >
+        <Link href="/labels" className="text-[var(--primary)] hover:underline text-sm">
           &larr; Back to Label Rules
         </Link>
       </div>
 
       <div className="flex items-center gap-3 mb-2">
-        <h1 className="text-2xl font-bold text-[var(--primary)]">
-          {data.dataset_type_name}
-        </h1>
+        <h1 className="text-2xl font-bold text-[var(--primary)]">{data.dataset_type_name}</h1>
         <Badge variant="secondary">{data.dataset_type}</Badge>
       </div>
 
@@ -147,19 +77,19 @@ function ColumnOverview() {
         <div className="flex items-center gap-3 mb-4">
           <Button
             onClick={handleAutoFillAll}
-            disabled={autoFilling || undoing}
+            disabled={autoFillAll.isPending || undoAll.isPending}
             size="sm"
           >
-            {autoFilling ? "Auto-filling..." : "Auto-fill All with AI"}
+            {autoFillAll.isPending ? "Auto-filling..." : "Auto-fill All with AI"}
           </Button>
           {hasAiRules && (
             <Button
               variant="outline"
               onClick={handleUndoAll}
-              disabled={autoFilling || undoing}
+              disabled={autoFillAll.isPending || undoAll.isPending}
               size="sm"
             >
-              {undoing ? "Undoing..." : "Undo All AI"}
+              {undoAll.isPending ? "Undoing..." : "Undo All AI"}
             </Button>
           )}
         </div>
@@ -216,12 +146,7 @@ function ColumnOverview() {
                 {data.columns.map((col) => {
                   const pct =
                     col.distinct_count && col.distinct_count > 0
-                      ? Math.min(
-                          100,
-                          Math.round(
-                            (col.rule_count / col.distinct_count) * 100
-                          )
-                        )
+                      ? Math.min(100, Math.round((col.rule_count / col.distinct_count) * 100))
                       : 0;
                   return (
                     <TableRow key={col.column_name}>
@@ -237,9 +162,7 @@ function ColumnOverview() {
                         {col.description}
                       </TableCell>
                       <TableCell>
-                        {col.distinct_count !== null
-                          ? col.distinct_count
-                          : "\u2014"}
+                        {col.distinct_count !== null ? col.distinct_count : "\u2014"}
                       </TableCell>
                       <TableCell>{col.rule_count}</TableCell>
                       <TableCell>
@@ -251,9 +174,7 @@ function ColumnOverview() {
                                 style={{ width: `${Math.min(pct, 100)}%` }}
                               />
                             </div>
-                            <span className="text-xs text-[var(--muted-foreground)]">
-                              {pct}%
-                            </span>
+                            <span className="text-xs text-[var(--muted-foreground)]">{pct}%</span>
                           </div>
                         ) : (
                           "\u2014"
@@ -269,8 +190,7 @@ function ColumnOverview() {
       )}
     </div>
   );
-}
+};
 
-export default function ColumnOverviewPage() {
-  return <ColumnOverview />;
-}
+const ColumnOverviewPage = () => <ColumnOverview />;
+export default ColumnOverviewPage;

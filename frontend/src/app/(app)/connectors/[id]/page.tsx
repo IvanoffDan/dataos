@@ -1,64 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
-import { api } from "@/lib/api";
+import {
+  useConnector,
+  useDeleteConnector,
+  useUpdateConnector,
+  useRefreshConnectorStatus,
+  useRetransformConnector,
+} from "@/hooks/use-connectors";
+import { statusBadgeVariant, formatFrequencyLong, formatDateTime } from "@/lib/format";
+import type { Connector } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConfirmDialog } from "@/components/confirm-dialog";
-import { EditDialog } from "@/components/edit-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EditDialog } from "@/components/shared/edit-dialog";
+import { ErrorBanner } from "@/components/shared/error-banner";
+import { PageHeader } from "@/components/shared/page-header";
 
-interface Connector {
-  id: number;
-  name: string;
-  fivetran_connector_id: string | null;
-  service: string;
-  status: string;
-  setup_state: string;
-  sync_state: string | null;
-  succeeded_at: string | null;
-  failed_at: string | null;
-  sync_frequency: number | null;
-  schedule_type: string | null;
-  paused: boolean;
-  daily_sync_time: string | null;
-  connector_category: string;
-  requires_table_selection: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-function statusBadgeVariant(
-  status: string
-): "success" | "warning" | "error" | "secondary" {
-  switch (status) {
-    case "connected":
-      return "success";
-    case "setup_incomplete":
-      return "warning";
-    case "broken":
-      return "error";
-    default:
-      return "secondary";
-  }
-}
-
-function formatFrequency(minutes: number | null): string {
-  if (!minutes) return "\u2014";
-  if (minutes < 60) return `Every ${minutes} minutes`;
-  if (minutes === 60) return "Every hour";
-  if (minutes < 1440) return `Every ${Math.round(minutes / 60)} hours`;
-  return `Every ${Math.round(minutes / 1440)} days`;
-}
-
-function formatDateTime(dateStr: string | null): string {
-  if (!dateStr) return "\u2014";
-  return new Date(dateStr).toLocaleString();
-}
-
-function nextSyncEstimate(connector: Connector): string {
+const nextSyncEstimate = (connector: Connector): string => {
   if (connector.paused) return "Paused";
   if (!connector.succeeded_at || !connector.sync_frequency) return "\u2014";
   const last = new Date(connector.succeeded_at).getTime();
@@ -70,114 +31,24 @@ function nextSyncEstimate(connector: Connector): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `~${hours}h`;
   return `~${Math.floor(hours / 24)}d`;
-}
+};
 
-function ConnectorDetail() {
+const ConnectorDetail = () => {
   const params = useParams();
   const router = useRouter();
-  const [connector, setConnector] = useState<Connector | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const id = Number(params.id);
 
-  // Edit dialog
+  const { data: connector, isLoading, error } = useConnector(id);
+  const updateMutation = useUpdateConnector(id);
+  const deleteMutation = useDeleteConnector();
+  const refreshMutation = useRefreshConnectorStatus(id);
+  const retransformMutation = useRetransformConnector(id);
+
   const [editOpen, setEditOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  // Retransform
-  const [retransforming, setRetransforming] = useState(false);
-  const [retransformMsg, setRetransformMsg] = useState("");
-
-  // Delete dialog
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    api(`/api/connectors/${params.id}`)
-      .then((res) => res.json())
-      .then(setConnector);
-  }, [params.id]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    setError("");
-    try {
-      const res = await api(`/api/connectors/${params.id}/sync-status`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || "Failed to refresh status");
-      }
-      setConnector(await res.json());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const handleSave = async (newName: string) => {
-    setSaving(true);
-    setError("");
-    try {
-      const res = await api(`/api/connectors/${params.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: newName }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || "Failed to update connector");
-      }
-      setConnector(await res.json());
-      setEditOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    setError("");
-    try {
-      const res = await api(`/api/connectors/${params.id}`, {
-        method: "DELETE",
-      });
-      if (!res.ok && res.status !== 204) {
-        const data = await res.json();
-        throw new Error(data.detail || "Failed to delete connector");
-      }
-      router.push("/connectors");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-      setDeleting(false);
-      setDeleteOpen(false);
-    }
-  };
-
-  const handleRetransform = async () => {
-    setRetransforming(true);
-    setError("");
-    setRetransformMsg("");
-    try {
-      const res = await api(`/api/connectors/${params.id}/retransform`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || "Failed to trigger retransform");
-      }
-      const data = await res.json();
-      setRetransformMsg(data.message);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setRetransforming(false);
-    }
-  };
-
-  if (!connector) {
+  if (error) return <ErrorBanner message={error.message} />;
+  if (isLoading || !connector) {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
   }
 
@@ -191,67 +62,48 @@ function ConnectorDetail() {
 
   return (
     <div>
-      <div className="mb-4">
-        <Link
-          href="/connectors"
-          className="text-[var(--primary)] hover:underline text-sm"
-        >
-          &larr; Back to Connectors
-        </Link>
-      </div>
-
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-[var(--primary)]">
-            {connector.name}
-          </h1>
-          <Badge variant={statusBadgeVariant(connector.status)}>
-            {connector.status}
-          </Badge>
-          {connector.connector_category && connector.connector_category !== "passthrough" && (
-            <Badge variant="secondary">
-              {connector.connector_category}
+      <PageHeader
+        backHref="/connectors"
+        backLabel="Back to Connectors"
+        title={connector.name}
+        badges={
+          <>
+            <Badge variant={statusBadgeVariant(connector.status)}>
+              {connector.status}
             </Badge>
-          )}
-          {connector.paused && <Badge variant="secondary">Paused</Badge>}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setEditOpen(true)}
-          >
-            Edit
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          {connector.connector_category !== "passthrough" && (
+            {connector.connector_category && connector.connector_category !== "passthrough" && (
+              <Badge variant="secondary">{connector.connector_category}</Badge>
+            )}
+            {connector.paused && <Badge variant="secondary">Paused</Badge>}
+            <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+          </>
+        }
+        actions={
+          <>
+            {connector.connector_category !== "passthrough" && (
+              <Button
+                variant="outline"
+                onClick={() => retransformMutation.mutate()}
+                disabled={retransformMutation.isPending}
+              >
+                {retransformMutation.isPending ? "Triggering..." : "Re-run Transform"}
+              </Button>
+            )}
             <Button
               variant="outline"
-              onClick={handleRetransform}
-              disabled={retransforming}
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending || !connector.fivetran_connector_id}
             >
-              {retransforming ? "Triggering..." : "Re-run Transform"}
+              {refreshMutation.isPending ? "Refreshing..." : "Refresh Status"}
             </Button>
-          )}
-          <Button
-            variant="outline"
-            onClick={handleRefresh}
-            disabled={refreshing || !connector.fivetran_connector_id}
-          >
-            {refreshing ? "Refreshing..." : "Refresh Status"}
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => setDeleteOpen(true)}
-          >
-            Delete
-          </Button>
-        </div>
-      </div>
-
-      {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
-      {retransformMsg && (
-        <p className="text-green-700 text-sm mb-4">{retransformMsg}</p>
-      )}
+            <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+              Delete
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
@@ -287,7 +139,7 @@ function ConnectorDetail() {
               <dt className="text-[var(--muted-foreground)]">Sync State</dt>
               <dd>{connector.sync_state || "\u2014"}</dd>
               <dt className="text-[var(--muted-foreground)]">Frequency</dt>
-              <dd>{formatFrequency(connector.sync_frequency)}</dd>
+              <dd>{formatFrequencyLong(connector.sync_frequency)}</dd>
               <dt className="text-[var(--muted-foreground)]">Schedule Type</dt>
               <dd className="capitalize">{connector.schedule_type || "\u2014"}</dd>
               {connector.daily_sync_time && (
@@ -308,7 +160,6 @@ function ConnectorDetail() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              {/* Health indicator */}
               <div className="flex items-center gap-3">
                 <div
                   className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -335,30 +186,16 @@ function ConnectorDetail() {
                         ? "Healthy"
                         : "Last sync failed"}
                   </p>
-                  <p className="text-xs text-[var(--muted-foreground)]">
-                    Current health
-                  </p>
+                  <p className="text-xs text-[var(--muted-foreground)]">Current health</p>
                 </div>
               </div>
-
-              {/* Last success */}
               <div>
-                <p className="text-sm font-medium text-green-700">
-                  Last Success
-                </p>
-                <p className="text-sm">
-                  {formatDateTime(connector.succeeded_at)}
-                </p>
+                <p className="text-sm font-medium text-green-700">Last Success</p>
+                <p className="text-sm">{formatDateTime(connector.succeeded_at)}</p>
               </div>
-
-              {/* Last failure */}
               <div>
-                <p className="text-sm font-medium text-red-700">
-                  Last Failure
-                </p>
-                <p className="text-sm">
-                  {formatDateTime(connector.failed_at)}
-                </p>
+                <p className="text-sm font-medium text-red-700">Last Failure</p>
+                <p className="text-sm">{formatDateTime(connector.failed_at)}</p>
               </div>
             </div>
           </CardContent>
@@ -367,28 +204,33 @@ function ConnectorDetail() {
 
       <ConfirmDialog
         open={deleteOpen}
-        onConfirm={handleDelete}
+        onConfirm={() =>
+          deleteMutation.mutate(id, {
+            onSuccess: () => router.push("/connectors"),
+          })
+        }
         onCancel={() => setDeleteOpen(false)}
         title="Delete Connector"
         description={`Are you sure you want to delete "${connector.name}"? This action cannot be undone.`}
         confirmLabel="Delete"
         variant="destructive"
-        loading={deleting}
+        loading={deleteMutation.isPending}
       />
 
       <EditDialog
         open={editOpen}
-        onSave={handleSave}
+        onSave={(newName) =>
+          updateMutation.mutate({ name: newName }, { onSuccess: () => setEditOpen(false) })
+        }
         onCancel={() => setEditOpen(false)}
         title="Rename Connector"
         label="Connector Name"
         defaultValue={connector.name}
-        loading={saving}
+        loading={updateMutation.isPending}
       />
     </div>
   );
-}
+};
 
-export default function ConnectorDetailPage() {
-  return <ConnectorDetail />;
-}
+const ConnectorDetailPage = () => <ConnectorDetail />;
+export default ConnectorDetailPage;

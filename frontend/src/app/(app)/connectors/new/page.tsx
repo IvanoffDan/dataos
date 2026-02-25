@@ -2,18 +2,15 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { useConnectorTypes } from "@/hooks/use-connectors";
+import { createConnector, finalizeConnector } from "@/lib/api/connectors";
+import type { ConnectorType } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface ConnectorType {
-  id: string;
-  name: string;
-}
-
-function ServiceAutocomplete({
+const ServiceAutocomplete = ({
   value,
   onChange,
   types,
@@ -21,7 +18,7 @@ function ServiceAutocomplete({
   value: string;
   onChange: (id: string) => void;
   types: ConnectorType[];
-}) {
+}) => {
   const [userQuery, setUserQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [open, setOpen] = useState(false);
@@ -47,14 +44,11 @@ function ServiceAutocomplete({
   }, [query, types]);
 
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (
-        wrapperRef.current &&
-        !wrapperRef.current.contains(e.target as Node)
-      ) {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
-    }
+    };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -87,9 +81,7 @@ function ServiceAutocomplete({
               className="px-3 py-2 hover:bg-[var(--accent-light)] cursor-pointer flex justify-between"
             >
               <span>{t.name}</span>
-              <span className="text-[var(--muted-foreground)] text-xs">
-                {t.id}
-              </span>
+              <span className="text-[var(--muted-foreground)] text-xs">{t.id}</span>
             </li>
           ))}
           {filtered.length > 50 && (
@@ -101,23 +93,16 @@ function ServiceAutocomplete({
       )}
     </div>
   );
-}
+};
 
-function NewConnector() {
+const NewConnector = () => {
   const router = useRouter();
+  const { data: connectorTypes = [] } = useConnectorTypes();
   const [name, setName] = useState("");
   const [service, setService] = useState("");
-  const [connectorTypes, setConnectorTypes] = useState<ConnectorType[]>([]);
   const [loading, setLoading] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    api("/api/connectors/types")
-      .then((res) => res.json())
-      .then(setConnectorTypes)
-      .catch(() => {});
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,15 +110,7 @@ function NewConnector() {
     setLoading(true);
     setError("");
     try {
-      const res = await api("/api/connectors", {
-        method: "POST",
-        body: JSON.stringify({ name: name.trim(), service }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || "Failed to create connector");
-      }
-      const data = await res.json();
+      const data = await createConnector({ name: name.trim(), service });
       const connectorId = data.id;
       const connectCardUrl = data.connect_card_url;
 
@@ -144,9 +121,7 @@ function NewConnector() {
       );
 
       if (!popup) {
-        setError(
-          "Popup blocked — please allow popups for this site and try again."
-        );
+        setError("Popup blocked — please allow popups for this site and try again.");
         setLoading(false);
         return;
       }
@@ -159,9 +134,7 @@ function NewConnector() {
         clearInterval(interval);
         setWaiting(false);
         try {
-          await api(`/api/connectors/${connectorId}/finalize`, {
-            method: "POST",
-          });
+          await finalizeConnector(connectorId);
         } catch {
           // still redirect even if finalize fails
         }
@@ -176,9 +149,7 @@ function NewConnector() {
   return (
     <Card className="max-w-md">
       <CardHeader>
-        <CardTitle className="text-2xl text-[var(--primary)]">
-          Add Connector
-        </CardTitle>
+        <CardTitle className="text-2xl text-[var(--primary)]">Add Connector</CardTitle>
       </CardHeader>
       <CardContent>
         {waiting ? (
@@ -213,17 +184,10 @@ function NewConnector() {
             </div>
             {error && <p className="text-red-600 text-sm">{error}</p>}
             <div className="flex gap-2">
-              <Button
-                type="submit"
-                disabled={loading || !name.trim() || !service}
-              >
+              <Button type="submit" disabled={loading || !name.trim() || !service}>
                 {loading ? "Creating..." : "Continue"}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.push("/connectors")}
-              >
+              <Button type="button" variant="outline" onClick={() => router.push("/connectors")}>
                 Cancel
               </Button>
             </div>
@@ -232,8 +196,7 @@ function NewConnector() {
       </CardContent>
     </Card>
   );
-}
+};
 
-export default function NewConnectorPage() {
-  return <NewConnector />;
-}
+const NewConnectorPage = () => <NewConnector />;
+export default NewConnectorPage;

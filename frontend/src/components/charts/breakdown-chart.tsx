@@ -9,7 +9,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { BreakdownItem } from "@/lib/explore-api";
+import type { BreakdownItem } from "@/types";
 
 interface BreakdownChartProps {
   data: BreakdownItem[];
