@@ -80,8 +80,13 @@ export const sourceStatusVariant = (
     case "mapped":
       return "success";
     case "pending_mapping":
+    case "pending_review":
       return "warning";
+    case "auto_mapping":
+    case "auto_labelling":
+      return "secondary";
     case "error":
+    case "processing_failed":
       return "error";
     default:
       return "secondary";

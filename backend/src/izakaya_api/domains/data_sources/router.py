@@ -89,6 +89,20 @@ def delete_data_source(
     db.commit()
 
 
+# --- Approve ---
+
+@router.post("/data-sources/{data_source_id}/approve", response_model=DataSourceResponse)
+def approve_data_source(
+    data_source_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    svc: DataSourceService = Depends(_get_service),
+):
+    result = svc.approve(data_source_id)
+    db.commit()
+    return result
+
+
 # --- Pipeline runs ---
 
 @router.post("/data-sources/{data_source_id}/run", response_model=PipelineRunResponse, status_code=201)

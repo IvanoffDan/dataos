@@ -89,11 +89,15 @@ def delete_connection(fivetran_connector_id: str) -> None:
 
 def trigger_sync(fivetran_connector_id: str) -> None:
     """Trigger an immediate sync for a connection."""
-    httpx.post(
+    resp = httpx.post(
         f"{BASE_URL}/connections/{fivetran_connector_id}/sync",
         auth=_auth(),
         json={"force": True},
     )
+    if resp.status_code not in (200, 201):
+        raise ExternalServiceError(
+            f"Fivetran trigger-sync error: {resp.status_code} {resp.text}"
+        )
 
 
 def get_connection(fivetran_connector_id: str) -> dict:

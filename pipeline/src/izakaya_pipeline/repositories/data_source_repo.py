@@ -93,15 +93,15 @@ def get_fivetran_synced_sources(db: Session) -> list[int]:
 
 
 def get_synced_connectors(db: Session) -> list[tuple[int, str]]:
-    """Returns (connector_id, service) for synced connectors with mapped data sources
-    that have no pending/running pipeline runs."""
+    """Returns (connector_id, service) for synced connectors with mapped or auto_mapping
+    data sources that have no pending/running pipeline runs."""
     rows = db.execute(
         text("""
             SELECT DISTINCT c.id, c.service
             FROM connectors c
             JOIN data_sources ds ON ds.connector_id = c.id
             WHERE c.sync_state = 'synced'
-              AND ds.status = 'mapped'
+              AND ds.status IN ('mapped', 'auto_mapping')
               AND NOT EXISTS (
                 SELECT 1 FROM pipeline_runs pr
                 JOIN data_sources ds2 ON ds2.id = pr.data_source_id

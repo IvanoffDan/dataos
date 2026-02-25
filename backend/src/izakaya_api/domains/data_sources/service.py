@@ -88,16 +88,13 @@ class DataSourceService:
             connector_id=connector_id,
             bq_table=staging_table,
             raw_table=raw_table,
-            status="pending_mapping",
+            status="auto_mapping",
         )
         self.ds_repo.create(ds)
 
-        # If connector already synced, trigger initial dbt transform so staging table
-        # exists before the user tries to map columns
-        if connector.sync_state == "synced":
-            self.run_repo.create(
-                PipelineRun(data_source_id=ds.id, status="pending_transform")
-            )
+        # For auto_mapping, the automation pipeline handles the full flow.
+        # The staging table already exists from prior dbt runs (if connector is synced)
+        # or will be created by fivetran_sync_sensor → dbt when the connector first syncs.
 
         return self._build_response(ds)
 
@@ -128,7 +125,7 @@ class DataSourceService:
             raise DomainValidationError("Connector has no BQ schema")
         return get_table_columns(connector.schema_name, ds.bq_table)
 
-    def save_mappings(self, data_source_id: int, mappings: list[dict]) -> list[Mapping]:
+    def save_mappings(self, data_source_id: int, mappings: list[dict], auto_mode: bool = False) -> list[Mapping]:
         ds = self._get_ds(data_source_id)
         self.mapping_repo.delete_by_data_source(data_source_id)
         new_mappings = []
@@ -141,10 +138,22 @@ class DataSourceService:
             )
             self.mapping_repo.create(m)
             new_mappings.append(m)
-        ds.status = "mapped" if mappings else "pending_mapping"
+        if not auto_mode:
+            ds.status = "mapped" if mappings else "pending_mapping"
         if not self.run_repo.has_pending(data_source_id):
             self.run_repo.create(PipelineRun(data_source_id=data_source_id, status="pending"))
         return new_mappings
+
+    def approve(self, data_source_id: int) -> DataSourceResponse:
+        ds = self._get_ds(data_source_id)
+        if ds.status != "pending_review":
+            raise DomainValidationError(
+                f"Cannot approve data source in '{ds.status}' status (expected 'pending_review')"
+            )
+        ds.status = "mapped"
+        if not self.run_repo.has_pending(data_source_id):
+            self.run_repo.create(PipelineRun(data_source_id=data_source_id, status="pending"))
+        return self._build_response(ds)
 
     def get_mappings(self, data_source_id: int) -> list[Mapping]:
         self._get_ds(data_source_id)

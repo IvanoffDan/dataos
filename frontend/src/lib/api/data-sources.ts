@@ -50,6 +50,9 @@ export const saveMappings = (
     body: JSON.stringify({ mappings }),
   });
 
+export const approveDataSource = (dataSourceId: number): Promise<DataSource> =>
+  apiFetch(`/api/data-sources/${dataSourceId}/approve`, { method: "POST" });
+
 export const autoMap = (dataSourceId: number): Promise<{
   suggestions: {
     target_column: string;

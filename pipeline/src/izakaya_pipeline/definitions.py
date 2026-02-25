@@ -8,6 +8,8 @@ from izakaya_pipeline.credentials import resolve_gcp_credentials
 resolve_gcp_credentials()
 
 from izakaya_pipeline.assets import (
+    auto_label_asset,
+    auto_map_asset,
     connector_partitions,
     datamart,
     dataset_partitions,
@@ -17,6 +19,7 @@ from izakaya_pipeline.assets import (
 )
 from izakaya_pipeline.resources import BigQueryResource, DatabaseResource
 from izakaya_pipeline.sensors import (
+    automation_sensor,
     config_change_sensor,
     fivetran_sync_sensor,
     pending_run_sensor,
@@ -36,10 +39,23 @@ transform_job = define_asset_job(
     partitions_def=connector_partitions,
 )
 
+auto_map_job = define_asset_job(
+    name="auto_map_job",
+    selection=[auto_map_asset],
+    partitions_def=dataset_partitions,
+)
+
+auto_label_job = define_asset_job(
+    name="auto_label_job",
+    selection=[auto_label_asset],
+    partitions_def=dataset_partitions,
+)
+
 defs = Definitions(
-    assets=[mapped_dataset, labelled_dataset, datamart, dbt_staging],
-    jobs=[etl_asset_job, transform_job],
+    assets=[mapped_dataset, labelled_dataset, datamart, dbt_staging, auto_map_asset, auto_label_asset],
+    jobs=[etl_asset_job, transform_job, auto_map_job, auto_label_job],
     sensors=[
+        automation_sensor,
         pending_run_sensor,
         fivetran_sync_sensor,
         config_change_sensor,

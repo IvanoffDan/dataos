@@ -8,6 +8,7 @@ import {
   createDataSource,
   updateDataSource,
   deleteDataSource,
+  approveDataSource,
   fetchDatasetTypes,
   fetchTargetColumns,
   fetchSourceColumns,
@@ -90,6 +91,31 @@ export const useSaveMappings = (dataSourceId: number) => {
       qc.invalidateQueries({ queryKey: ["mappings", dataSourceId] });
       qc.invalidateQueries({ queryKey: ["data-sources", dataSourceId] });
       toast.success("Mappings saved");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+};
+
+export const useDataSourcePolling = (id: number) =>
+  useQuery({
+    queryKey: ["data-sources", id],
+    queryFn: () => fetchDataSource(id),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "auto_mapping" || status === "auto_labelling"
+        ? 5000
+        : false;
+    },
+  });
+
+export const useApproveDataSource = (id: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => approveDataSource(id),
+    onSuccess: (data) => {
+      qc.setQueryData(["data-sources", id], data);
+      qc.invalidateQueries({ queryKey: ["data-sources"] });
+      toast.success("Data source approved");
     },
     onError: (err: Error) => toast.error(err.message),
   });
