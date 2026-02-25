@@ -28,6 +28,7 @@ interface Connector {
   schedule_type: string | null;
   paused: boolean;
   daily_sync_time: string | null;
+  connector_category: string;
   created_at: string;
 }
 

@@ -34,6 +34,8 @@ class ConnectorResponse(BaseModel):
     setup_state: str
     sync_state: str | None
     schema_name: str
+    connector_category: str = "passthrough"
+    requires_table_selection: bool = True
     succeeded_at: datetime | None = None
     failed_at: datetime | None = None
     sync_frequency: int | None = None

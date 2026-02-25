@@ -55,6 +55,8 @@ interface DataSource {
   connector_id: number;
   connector_name: string;
   bq_table: string;
+  raw_table: string | null;
+  connector_category: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -275,6 +277,14 @@ function DataSourceDetail() {
         Connector: <span className="font-medium text-[var(--foreground)]">{dataSource.connector_name}</span>
         {" "}&middot;{" "}
         BQ Table: <span className="font-mono">{dataSource.bq_table}</span>
+        {dataSource.connector_category && dataSource.connector_category !== "passthrough" && (
+          <>
+            {" "}&middot;{" "}
+            <Badge variant="secondary" className="text-xs">
+              {dataSource.connector_category}
+            </Badge>
+          </>
+        )}
       </p>
 
       {/* KPI Summary */}

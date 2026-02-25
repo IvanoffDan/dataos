@@ -20,6 +20,8 @@ interface Connector {
   name: string;
   schema_name: string;
   status: string;
+  requires_table_selection: boolean;
+  connector_category: string;
 }
 
 interface BqTable {
@@ -53,9 +55,12 @@ function CreateDataSource() {
       .then(setConnectors);
   }, []);
 
-  // Load BQ tables when connector is selected
+  const selectedConnectorObj = connectors.find((c) => c.id === selectedConnector);
+  const needsTableSelection = selectedConnectorObj?.requires_table_selection !== false;
+
+  // Load BQ tables when connector is selected (only if table selection is needed)
   useEffect(() => {
-    if (selectedConnector) {
+    if (selectedConnector && needsTableSelection) {
       setLoadingTables(true);
       setBqTables([]);
       setSelectedTable("");
@@ -76,12 +81,17 @@ function CreateDataSource() {
           setError(err instanceof Error ? err.message : "Failed to load tables");
         })
         .finally(() => setLoadingTables(false));
+    } else if (selectedConnector && !needsTableSelection) {
+      // Auto-managed table — clear table picker state
+      setBqTables([]);
+      setSelectedTable("");
     }
-  }, [selectedConnector]);
+  }, [selectedConnector, needsTableSelection]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !datasetType || !selectedConnector || !selectedTable) return;
+    if (!name.trim() || !datasetType || !selectedConnector) return;
+    if (needsTableSelection && !selectedTable) return;
     setSubmitting(true);
     setError("");
     try {
@@ -92,7 +102,7 @@ function CreateDataSource() {
           dataset_type: datasetType,
           description,
           connector_id: selectedConnector,
-          bq_table: selectedTable,
+          ...(needsTableSelection ? { bq_table: selectedTable } : {}),
         }),
       });
       if (!res.ok) {
@@ -192,7 +202,7 @@ function CreateDataSource() {
               </select>
             </div>
 
-            {selectedConnector && (
+            {selectedConnector && needsTableSelection && (
               <div className="space-y-2">
                 <Label>BQ Table</Label>
                 {loadingTables ? (
@@ -219,11 +229,19 @@ function CreateDataSource() {
               </div>
             )}
 
+            {selectedConnector && !needsTableSelection && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                Table is managed automatically for{" "}
+                <span className="font-medium">{selectedConnectorObj?.connector_category}</span>{" "}
+                connectors. No table selection needed.
+              </div>
+            )}
+
             {error && <p className="text-red-600 text-sm">{error}</p>}
 
             <Button
               type="submit"
-              disabled={submitting || !name.trim() || !selectedConnector || !selectedTable}
+              disabled={submitting || !name.trim() || !selectedConnector || (needsTableSelection && !selectedTable)}
             >
               {submitting ? "Creating..." : "Create Data Source"}
             </Button>

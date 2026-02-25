@@ -1,0 +1,8 @@
+version: 2
+
+models:
+  - name: stg_database
+    description: >
+      Database connector staging model (Postgres, MySQL, etc.).
+      Filters out rows marked as soft-deleted by Fivetran
+      (_fivetran_deleted = true) and strips Fivetran metadata columns.

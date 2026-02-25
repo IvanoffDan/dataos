@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: stg_google_ads
+    description: >
+      Google Ads staging model. Joins campaign_stats with geo_performance,
+      fanning out metrics proportionally by geo cost share.
+    columns:
+      - name: date
+        description: Reporting date
+      - name: campaign_id
+        description: Google Ads campaign ID
+      - name: campaign_name
+        description: Campaign name
+      - name: geography
+        description: Geo target (coalesced to 'Unknown' if null)
+      - name: cost
+        description: Cost in account currency, fanned out by geo proportion
+      - name: impressions
+        description: Impressions fanned out by geo proportion
+      - name: clicks
+        description: Clicks fanned out by geo proportion

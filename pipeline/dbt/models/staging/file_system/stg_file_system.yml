@@ -1,0 +1,9 @@
+version: 2
+
+models:
+  - name: stg_file_system
+    description: >
+      File system staging model (SFTP, S3, GCS including manual uploads).
+      Removes orphaned rows from source files that have been deleted.
+      Identifies active files by checking which _file values appear in the
+      latest Fivetran sync window (1-hour buffer).

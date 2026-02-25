@@ -17,6 +17,9 @@ class Connector(Base):
     setup_state: Mapped[str] = mapped_column(String(50), default="incomplete")
     sync_state: Mapped[str | None] = mapped_column(String(50), nullable=True)
     schema_name: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    connector_category: Mapped[str] = mapped_column(
+        String(50), default="passthrough", server_default="passthrough"
+    )
 
     succeeded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

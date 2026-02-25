@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: stg_facebook_ads
+    description: >
+      Meta Ads staging model. Joins ads_insights_platform_and_device with
+      ads_insights_region, fanning out metrics proportionally by regional
+      spend share. Reach fanout is an approximation (reach is not additive).
+    columns:
+      - name: date
+        description: Reporting date
+      - name: ad_id
+        description: Meta ad ID
+      - name: campaign_name
+        description: Campaign name
+      - name: geography
+        description: Region name (coalesced to 'Unknown' if null)
+      - name: spend
+        description: Spend fanned out by regional proportion
+      - name: impressions
+        description: Impressions fanned out by regional proportion
+      - name: reach
+        description: Reach fanned out by regional proportion (approximation)

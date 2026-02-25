@@ -24,6 +24,8 @@ interface Connector {
   schedule_type: string | null;
   paused: boolean;
   daily_sync_time: string | null;
+  connector_category: string;
+  requires_table_selection: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -80,6 +82,10 @@ function ConnectorDetail() {
   // Edit dialog
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Retransform
+  const [retransforming, setRetransforming] = useState(false);
+  const [retransformMsg, setRetransformMsg] = useState("");
 
   // Delete dialog
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -150,6 +156,27 @@ function ConnectorDetail() {
     }
   };
 
+  const handleRetransform = async () => {
+    setRetransforming(true);
+    setError("");
+    setRetransformMsg("");
+    try {
+      const res = await api(`/api/connectors/${params.id}/retransform`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || "Failed to trigger retransform");
+      }
+      const data = await res.json();
+      setRetransformMsg(data.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setRetransforming(false);
+    }
+  };
+
   if (!connector) {
     return <p className="text-[var(--muted-foreground)]">Loading...</p>;
   }
@@ -181,6 +208,11 @@ function ConnectorDetail() {
           <Badge variant={statusBadgeVariant(connector.status)}>
             {connector.status}
           </Badge>
+          {connector.connector_category && connector.connector_category !== "passthrough" && (
+            <Badge variant="secondary">
+              {connector.connector_category}
+            </Badge>
+          )}
           {connector.paused && <Badge variant="secondary">Paused</Badge>}
           <Button
             variant="ghost"
@@ -191,6 +223,15 @@ function ConnectorDetail() {
           </Button>
         </div>
         <div className="flex items-center gap-2">
+          {connector.connector_category !== "passthrough" && (
+            <Button
+              variant="outline"
+              onClick={handleRetransform}
+              disabled={retransforming}
+            >
+              {retransforming ? "Triggering..." : "Re-run Transform"}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={handleRefresh}
@@ -208,6 +249,9 @@ function ConnectorDetail() {
       </div>
 
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+      {retransformMsg && (
+        <p className="text-green-700 text-sm mb-4">{retransformMsg}</p>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
@@ -218,6 +262,8 @@ function ConnectorDetail() {
             <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
               <dt className="text-[var(--muted-foreground)]">Service</dt>
               <dd>{connector.service || "\u2014"}</dd>
+              <dt className="text-[var(--muted-foreground)]">Category</dt>
+              <dd className="capitalize">{connector.connector_category}</dd>
               <dt className="text-[var(--muted-foreground)]">Fivetran ID</dt>
               <dd className="font-mono text-xs">
                 {connector.fivetran_connector_id || "\u2014"}

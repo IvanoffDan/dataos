@@ -11,12 +11,19 @@ from izakaya_api.domains.connectors.schemas import (
     ConnectorUpdate,
 )
 from izakaya_api.domains.connectors.service import ConnectorService
+from izakaya_api.domains.connectors.transform_config import requires_table_selection
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 
 
 def _get_service(db: Session = Depends(get_db)) -> ConnectorService:
     return ConnectorService(ConnectorRepository(db))
+
+
+def _connector_response(connector) -> ConnectorResponse:
+    resp = ConnectorResponse.model_validate(connector)
+    resp.requires_table_selection = requires_table_selection(connector.service)
+    return resp
 
 
 @router.get("/types")
@@ -32,7 +39,7 @@ def list_connectors(
     _user: User = Depends(get_current_user),
     svc: ConnectorService = Depends(_get_service),
 ):
-    return svc.list_all()
+    return [_connector_response(c) for c in svc.list_all()]
 
 
 @router.post("", response_model=ConnectorCreateResponse, status_code=201)
@@ -95,7 +102,7 @@ def get_connector(
     _user: User = Depends(get_current_user),
     svc: ConnectorService = Depends(_get_service),
 ):
-    return svc.get(connector_id)
+    return _connector_response(svc.get(connector_id))
 
 
 @router.patch("/{connector_id}", response_model=ConnectorResponse)
@@ -130,3 +137,16 @@ def get_connector_tables(
     svc: ConnectorService = Depends(_get_service),
 ):
     return svc.get_tables(connector_id)
+
+
+@router.post("/{connector_id}/retransform", status_code=202)
+def trigger_retransform(
+    connector_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    svc: ConnectorService = Depends(_get_service),
+):
+    """Manually trigger dbt re-transform for all mapped data sources on this connector."""
+    created = svc.retransform(connector_id, db)
+    db.commit()
+    return {"message": f"Triggered retransform for {created} data source(s)"}

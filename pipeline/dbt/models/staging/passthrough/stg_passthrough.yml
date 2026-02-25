@@ -1,0 +1,7 @@
+version: 2
+
+models:
+  - name: stg_passthrough
+    description: >
+      Passthrough staging model for connectors that don't need special transformation.
+      Copies the source table as-is into a staging table for consistency.

@@ -3,6 +3,7 @@ import logging
 from izakaya_api.core.exceptions import ExternalServiceError, NotFoundError, ValidationError as DomainValidationError
 from izakaya_api.dataset_types import get_dataset_type
 from izakaya_api.domains.connectors.repository import ConnectorRepository
+from izakaya_api.domains.connectors.transform_config import get_connector_category, get_staging_table, requires_table_selection
 from izakaya_api.domains.data_sources.models import DataSource, Mapping, PipelineRun
 from izakaya_api.domains.data_sources.repository import (
     DataSourceRepository,
@@ -38,6 +39,7 @@ class DataSourceService:
 
     def _build_response(self, ds: DataSource) -> DataSourceResponse:
         connector = self.connector_repo.get(ds.connector_id)
+        category = get_connector_category(connector.service) if connector else "passthrough"
         return DataSourceResponse(
             id=ds.id,
             name=ds.name,
@@ -45,10 +47,12 @@ class DataSourceService:
             dataset_type=ds.dataset_type,
             connector_id=ds.connector_id,
             bq_table=ds.bq_table,
+            raw_table=ds.raw_table,
             status=ds.status,
             created_at=ds.created_at,
             updated_at=ds.updated_at,
             connector_name=connector.name if connector else "",
+            connector_category=category,
         )
 
     def list_all(self) -> list[DataSourceResponse]:
@@ -59,21 +63,42 @@ class DataSourceService:
         ds = self._get_ds(data_source_id)
         return self._build_response(ds)
 
-    def create(self, name: str, description: str, dataset_type: str, connector_id: int, bq_table: str) -> DataSourceResponse:
+    def create(
+        self, name: str, description: str, dataset_type: str, connector_id: int, bq_table: str | None
+    ) -> DataSourceResponse:
         if not get_dataset_type(dataset_type):
             raise DomainValidationError(f"Unknown dataset type: {dataset_type}")
         connector = self.connector_repo.get(connector_id)
         if not connector:
             raise NotFoundError("Connector not found")
+
+        # Determine bq_table (staging) and raw_table based on connector category
+        staging_table = get_staging_table(connector.service)
+        if requires_table_selection(connector.service):
+            if not bq_table:
+                raise DomainValidationError("bq_table is required for this connector type")
+            raw_table = bq_table
+        else:
+            raw_table = None
+
         ds = DataSource(
             name=name,
             description=description,
             dataset_type=dataset_type,
             connector_id=connector_id,
-            bq_table=bq_table,
+            bq_table=staging_table,
+            raw_table=raw_table,
             status="pending_mapping",
         )
         self.ds_repo.create(ds)
+
+        # If connector already synced, trigger initial dbt transform so staging table
+        # exists before the user tries to map columns
+        if connector.sync_state == "synced":
+            self.run_repo.create(
+                PipelineRun(data_source_id=ds.id, status="pending_transform")
+            )
+
         return self._build_response(ds)
 
     def update(self, data_source_id: int, data: dict) -> DataSourceResponse:

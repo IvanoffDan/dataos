@@ -3,6 +3,7 @@ import logging
 from izakaya_api.core.exceptions import NotFoundError, ValidationError
 from izakaya_api.domains.connectors.models import Connector
 from izakaya_api.domains.connectors.repository import ConnectorRepository
+from izakaya_api.domains.connectors.transform_config import get_connector_category, requires_table_selection
 from izakaya_api.infra.bigquery.table_service import list_tables
 from izakaya_api.infra.fivetran import client as fivetran
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 def apply_fivetran_details(connector: Connector, details: dict) -> None:
     """Apply Fivetran API response fields to a Connector model instance."""
     connector.service = details["service"]
+    connector.connector_category = get_connector_category(details["service"])
     connector.setup_state = details["setup_state"]
     connector.sync_state = details["sync_state"]
     connector.status = details["status"]
@@ -49,6 +51,7 @@ class ConnectorService:
             service=ft["service"],
             fivetran_connector_id=ft["fivetran_connector_id"],
             schema_name=ft["schema_name"],
+            connector_category=get_connector_category(ft["service"]),
         )
         self.repo.create(connector)
         return connector, ft["connect_card_url"]
@@ -98,3 +101,37 @@ class ConnectorService:
         if not connector.schema_name:
             raise ValidationError("Connector has no BQ schema")
         return list_tables(connector.schema_name)
+
+    def retransform(self, connector_id: int, db_session) -> int:
+        """Trigger dbt re-transform for all mapped data sources on this connector.
+
+        Creates PipelineRun(status='pending_transform') records that the
+        pending_transform_sensor picks up. Returns the number of runs created.
+        """
+        from izakaya_api.domains.data_sources.models import DataSource, PipelineRun
+
+        connector = self.get(connector_id)
+
+        data_sources = (
+            db_session.query(DataSource)
+            .filter(DataSource.connector_id == connector_id, DataSource.status == "mapped")
+            .all()
+        )
+        if not data_sources:
+            raise ValidationError("No mapped data sources on this connector")
+
+        created = 0
+        for ds in data_sources:
+            existing = (
+                db_session.query(PipelineRun)
+                .filter(
+                    PipelineRun.data_source_id == ds.id,
+                    PipelineRun.status.in_(["pending", "running", "pending_transform"]),
+                )
+                .first()
+            )
+            if not existing:
+                db_session.add(PipelineRun(data_source_id=ds.id, status="pending_transform"))
+                created += 1
+
+        return created

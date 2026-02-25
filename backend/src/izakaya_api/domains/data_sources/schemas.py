@@ -8,7 +8,7 @@ class DataSourceCreate(BaseModel):
     description: str = ""
     dataset_type: str
     connector_id: int
-    bq_table: str
+    bq_table: str | None = None
 
 
 class DataSourceUpdate(BaseModel):
@@ -23,10 +23,12 @@ class DataSourceResponse(BaseModel):
     dataset_type: str
     connector_id: int
     bq_table: str
+    raw_table: str | None = None
     status: str
     created_at: datetime
     updated_at: datetime
     connector_name: str = ""
+    connector_category: str = "passthrough"
 
     model_config = {"from_attributes": True}
 

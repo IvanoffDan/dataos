@@ -20,27 +20,29 @@ def _get_db_session():
     return sessionmaker(bind=_sensor_engine)()
 
 
-@sensor(job_name="transform_job", minimum_interval_seconds=60)
-def fivetran_sync_sensor(context):
-    """Detects completed Fivetran syncs and triggers dbt transform per connector.
+@sensor(job_name="transform_job", minimum_interval_seconds=30)
+def pending_transform_sensor(context):
+    """Picks up PipelineRun(status='pending_transform') and triggers dbt transform.
 
-    After dbt completes, the dbt_staging asset creates pending ETL runs,
-    which pending_run_sensor picks up for the existing mapped→labelled→datamart flow.
+    These are created by:
+    - Manual retransform (POST /connectors/{id}/retransform)
+    - Initial data source creation on a synced connector
     """
     db = _get_db_session()
     try:
-        connectors = data_source_repo.get_synced_connectors(db)
-        for connector_id, service in connectors:
+        connector_ids = data_source_repo.get_pending_transform_connector_ids(db)
+        for connector_id in connector_ids:
+            # Upgrade pending_transform → pending so ETL runs after dbt completes
+            data_source_repo.upgrade_pending_transforms(db, connector_id)
+
             context.instance.add_dynamic_partitions(
                 partitions_def_name="connector_id",
                 partition_keys=[str(connector_id)],
             )
             yield RunRequest(
-                run_key=f"transform-{connector_id}-{context.cursor or 0}",
+                run_key=f"retransform-{connector_id}-{context.cursor or 0}",
                 partition_key=str(connector_id),
             )
-            logger.info(
-                f"Triggered transform for connector {connector_id} ({service})"
-            )
+            logger.info(f"Triggered retransform for connector {connector_id}")
     finally:
         db.close()

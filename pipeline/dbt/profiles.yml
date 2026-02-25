@@ -1,0 +1,10 @@
+izakaya:
+  target: prod
+  outputs:
+    prod:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('BQ_PROJECT_ID') }}"
+      dataset: izakaya_staging
+      threads: 4
+      timeout_seconds: 300

@@ -1,0 +1,12 @@
+name: izakaya_transforms
+version: "1.0.0"
+config-version: 2
+profile: izakaya
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+
+models:
+  izakaya_transforms:
+    staging:
+      +materialized: table
