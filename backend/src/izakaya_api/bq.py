@@ -1,12 +1,4 @@
-from google.cloud import bigquery
+"""Re-export shim for backward compatibility."""
+from izakaya_api.core.dependencies import get_bq_client
 
-from izakaya_api.config import settings
-
-_client: bigquery.Client | None = None
-
-
-def get_bq_client() -> bigquery.Client:
-    global _client
-    if _client is None:
-        _client = bigquery.Client(project=settings.bq_project_id)
-    return _client
+__all__ = ["get_bq_client"]

@@ -1,9 +1,4 @@
-import bcrypt
+"""Re-export shim for backward compatibility."""
+from izakaya_api.domains.auth.service import hash_password, verify_password
 
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+__all__ = ["hash_password", "verify_password"]

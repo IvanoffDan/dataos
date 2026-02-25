@@ -1,9 +1,7 @@
-from izakaya_pipeline.assets.etl import (
-    datamart,
-    dataset_partitions,
-    labelled_dataset,
-    mapped_dataset,
-)
+from izakaya_pipeline.assets.datamart import datamart
+from izakaya_pipeline.assets.labelled_dataset import labelled_dataset
+from izakaya_pipeline.assets.mapped_dataset import mapped_dataset
+from izakaya_pipeline.assets.partitions import dataset_partitions
 
 __all__ = [
     "mapped_dataset",
